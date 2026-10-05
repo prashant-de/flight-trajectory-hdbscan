@@ -30,3 +30,15 @@ REDUCED_JULY_DIR = (
 
 # Outputs produced by our preprocessing pipeline
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+
+PROCESSED_JANUARY_DIR = (
+    PROCESSED_DIR / "january"
+)
+
+PROCESSED_JULY_DIR = (
+    PROCESSED_DIR / "july"
+)
+
+QUALITY_OUTPUT_DIR = (
+    PROJECT_ROOT / "outputs" / "quality"
+)

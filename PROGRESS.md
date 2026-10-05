@@ -210,3 +210,119 @@ The largest number of spatial removals in one retained trajectory was **1,172**.
 The preprocessing implementation was optimized so that each source CSV is read once and most spatial screening is performed using vectorized NumPy operations. This preserves the cleaning logic while substantially reducing January-wide processing time.
 
 **Next:** Step 2.4 — Evaluate and select the working trajectory representation/resampling interval for distance calculation.
+
+## Step 2.4 — Trajectory Resampling and Month Harmonization
+
+**Status:** Completed.
+
+### Working temporal resolution
+
+Candidate trajectory representations at **5 s, 10 s, and 30 s** were compared against cleaned high-resolution January trajectories.
+
+The 10-second representation was selected as the working temporal resolution because it provided a strong balance between geometric preservation and computational reduction.
+
+Across all 554 retained January trajectories:
+
+- Cleaned high-resolution position updates: **8,406,333**
+- Final 10-second trajectory points: **915,582**
+- Overall point reduction: **89.108%**
+- Minimum geometric coverage: **98.764%**
+- Median geometric coverage: **99.885%**
+- Mean geometric coverage: **99.857%**
+- Median of per-flight median reconstruction errors: **0.012890 km**
+- Median per-flight 95th-percentile reconstruction error: **0.059591 km**
+- Largest per-flight 95th-percentile error: **0.138371 km**
+
+Large missing-data gaps are preserved rather than interpolated through. Interpolation is only performed between cleaned observations separated by at most 60 seconds.
+
+### July compatibility
+
+The externally supplied July dataset was verified to be a genuine approximately 10-second dataset:
+
+- Source trajectories: **810**
+- Median timestamp gap: **10.000 s**
+- Median proportion of timestamp gaps between 8–12 s: **99.835%**
+- Duplicate timestamps: **0 flights**
+- Non-positive timestamp gaps: **0 flights**
+
+Because July does not contain `lastposupdate` or callsign, the January raw-data cleaning procedure cannot be reproduced identically. July is therefore harmonized conservatively using the available timestamp and coordinate data.
+
+The July harmonization process removes invalid geometry, repeated consecutive coordinates, severe spatial discontinuities, and obvious multi-segment trajectories before re-gridding onto the same exact 10-second working representation used for January.
+
+### Final trajectory-level eligibility rule
+
+A trajectory is excluded from MVP clustering if more than **20% of its unique position updates** must be rejected as physically impossible spatial observations.
+
+The same rule is applied to both months.
+
+January:
+- Source trajectories: **566**
+- Severe multi-segment exclusions: **12**
+- Severe spatial-corruption exclusions: **0**
+- Final retained trajectories: **554**
+- Largest retained spatial-removal fraction: **12.084%**
+
+July:
+- Source trajectories: **810**
+- Severe multi-segment exclusions: **5**
+- Severe spatial-corruption exclusions: **5**
+- Final retained trajectories: **800**
+- Largest retained spatial-removal fraction: **14.664%**
+
+The existing July 10-second dataset is therefore sufficient for the MVP. Re-downloading the full July 1-second dataset is not required.
+
+---
+
+## Step 2.5 — Final Processed Dataset
+
+**Status:** Completed and structurally validated.
+
+Final generated structure:
+
+```text
+data/processed/
+├── january/
+│   └── 554 processed trajectory CSV files
+└── july/
+    └── 800 processed trajectory CSV files
+
+outputs/quality/
+├── january_preprocessing_manifest.csv
+├── july_preprocessing_manifest.csv
+├── processed_dataset_manifest.csv
+└── processed_dataset_summary.json
+```
+
+Every final trajectory uses the common schema:
+
+- `sample_index`
+- `sample_time`
+- `time_utc`
+- `lat`
+- `lon`
+- `interpolated`
+
+Final dataset size:
+
+- January trajectories: **554**
+- July trajectories: **800**
+- Combined trajectories: **1,354**
+- January processed points: **915,582**
+- July processed points: **1,394,558**
+- Combined processed points: **2,310,140**
+
+All generated trajectory files passed structural validation:
+
+- finite timestamps;
+- finite and valid latitude/longitude;
+- strictly increasing timestamps;
+- timestamps aligned to the common 10-second grid;
+- valid sequential sample indices.
+
+Raw and externally reduced source files remain unchanged.
+
+### Module 2 conclusion
+
+The project now has a reproducible, quality-controlled, month-harmonized trajectory dataset containing **1,354 LAX → JFK flight trajectories** at a common **10-second temporal resolution**.
+
+This dataset is the input to **Module 3 — Trajectory Representation and Distance Calculation**.
