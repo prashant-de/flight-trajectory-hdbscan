@@ -1,0 +1,40 @@
+# Python virtual environment
+.venv/
+
+# Python cache / compiled files
+__pycache__/
+*.py[cod]
+
+# Personal research/study material
+myresearch/
+
+# Original January dataset
+optional original data/
+
+# Reduced trajectory datasets
+data/trajectory_january/
+data/trajectory_july/
+data/trajectory_january.zip
+data/trajectory_july.zip
+
+# Other local/raw/reduced/processed datasets
+data/raw/
+data/reduced/
+data/processed/
+
+# Generated project outputs
+outputs/
+
+# Credentials / secrets
+credentials.json
+.env
+.env.*
+*.pem
+*.key
+
+# VS Code local settings
+.vscode/
+
+# Operating-system files
+Thumbs.db
+.DS_Store
