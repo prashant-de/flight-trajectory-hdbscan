@@ -152,3 +152,61 @@ Step 2.2 identified three distinct quality problems that preprocessing must hand
 No raw source files were modified during Step 2.2.
 
 **Next:** Step 2.3 — Define and implement reproducible cleaning rules for the MVP.
+
+## Step 2.3 — Cleaning Rules and Base Preprocessing
+
+**Status:** Completed and verified across all original January trajectories.
+
+### Cleaning policy
+
+The MVP preprocessing pipeline applies the following reproducible rules:
+
+1. **Severe multi-segment trajectory files**
+   - Exclude a source file from the initial clustering dataset when all three conditions are satisfied:
+     - maximum internal row gap > **1 hour**;
+     - total file duration > **8 hours**;
+     - more than one observed callsign.
+   - January analysis identified **12 files** satisfying this combination.
+   - These raw files are not deleted or modified. They remain in `data/raw/january/OriginalJan` and may later be revisited as a robustness, segmentation, or extension analysis.
+
+2. **Unusable geometry**
+   - Remove observations with:
+     - unparseable timestamps;
+     - missing latitude or longitude;
+     - latitude outside `[-90, 90]`;
+     - longitude outside `[-180, 180]`;
+     - missing `lastposupdate`.
+
+3. **Carried-forward position observations**
+   - Consecutive rows carrying the same `lastposupdate` are reduced to the first observation representing that position update.
+   - This removes repeated/stale copies without inventing new coordinates.
+
+4. **Physically impossible spatial discontinuities**
+   - A candidate position update is rejected only when both:
+     - distance from the last accepted position is greater than **10 km**; and
+     - implied movement speed is greater than **3000 km/h**.
+   - These deliberately conservative thresholds target only clearly impossible spatial discontinuities rather than normal route deviations.
+   - Threshold sensitivity testing showed that a speed-only rule was too aggressive, while the combined distance-and-speed rule preserved normal development trajectories and still detected known corrupted intervals.
+
+5. **Raw data preservation**
+   - Preprocessing never modifies the original January CSV files.
+   - Retained observations preserve the original source-row index for traceability.
+
+### January-wide preprocessing result
+
+- Original January source files: **566**
+- Flights retained: **554**
+- Severe multi-segment candidates excluded: **12**
+- Original rows in retained flights: **9,422,067**
+- Unusable rows removed: **1,939**
+- Carried-forward rows removed: **1,008,635**
+- Spatially inconsistent position updates removed: **5,160**
+- Final cleaned position-update rows: **8,406,333**
+- Flights requiring at least one spatial removal: **83**
+- Flights with non-positive position-update timing: **0**
+
+The largest number of spatial removals in one retained trajectory was **1,172**.
+
+The preprocessing implementation was optimized so that each source CSV is read once and most spatial screening is performed using vectorized NumPy operations. This preserves the cleaning logic while substantially reducing January-wide processing time.
+
+**Next:** Step 2.4 — Evaluate and select the working trajectory representation/resampling interval for distance calculation.
