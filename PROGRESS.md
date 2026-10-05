@@ -326,3 +326,157 @@ Raw and externally reduced source files remain unchanged.
 The project now has a reproducible, quality-controlled, month-harmonized trajectory dataset containing **1,354 LAX → JFK flight trajectories** at a common **10-second temporal resolution**.
 
 This dataset is the input to **Module 3 — Trajectory Representation and Distance Calculation**.
+
+## Module 3 — Trajectory Representation and Distance Calculation
+
+**Status:** Completed for the primary MVP configuration.
+
+### Step 3.1 — Fixed trajectory representation
+
+The validated 10-second trajectories contain approximately 1,500–1,700 points per flight, which is unnecessarily large for full pairwise trajectory-distance calculations.
+
+Fixed-size representations were therefore evaluated using points equally spaced along cumulative geographic path length rather than time. This preserves route geometry while removing differences caused only by flight speed.
+
+Candidate representation sizes:
+
+- 25 points
+- 50 points
+- 100 points
+- 200 points
+
+Across all 1,354 trajectories:
+
+| Points | Median p95 reconstruction error | Worst p95 error | Median reduction |
+|---:|---:|---:|---:|
+| 25 | 34.689 km | 71.074 km | 98.54% |
+| 50 | 15.514 km | 38.857 km | 97.08% |
+| 100 | 4.828 km | 16.050 km | 94.16% |
+| 200 | 1.119 km | 8.413 km | 88.32% |
+
+The 25-point and 50-point representations were considered too coarse.
+
+A direct 100-versus-200-point Hausdorff comparison showed:
+
+- Pairwise distance correlation: **0.999981**
+- Median absolute distance difference: **0.467 km**
+- 95th-percentile absolute difference: **2.254 km**
+- Exact nearest-neighbor agreement: **95%**
+- 100-point nearest neighbor contained in 200-point top three: **100%**
+- Mean top-5 neighborhood overlap: **98.0%**
+- Mean top-10 neighborhood overlap: **98.75%**
+- Mean top-15 neighborhood overlap: **98.5%**
+- 200-point runtime approximately **4.5×** the 100-point runtime
+
+Therefore, **100 arc-length points** were selected as the primary MVP representation.
+
+The **200-point representation is retained as a sensitivity configuration** for later robustness analysis.
+
+---
+
+### Step 3.2 — Trajectory distance metric
+
+Three manually implemented trajectory-distance candidates were benchmarked using the selected 100-point representation:
+
+1. Symmetric Hausdorff distance
+2. Discrete Fréchet distance
+3. Normalized Dynamic Time Warping (DTW)
+
+All point-to-point geographic distances use the Haversine great-circle distance.
+
+Benchmark results:
+
+- Hausdorff runtime: **0.1392 s**
+- Discrete Fréchet runtime: **1.7198 s**
+- Normalized DTW runtime: **11.4276 s**
+
+Hausdorff and discrete Fréchet produced nearly identical pairwise structures:
+
+- Pearson correlation: **0.999980**
+- Rank correlation: **0.999960**
+- Exact nearest-neighbor agreement: **100%**
+- Mean top-5 neighborhood overlap: **98.0%**
+- Mean top-10 neighborhood overlap: **98.67%**
+
+DTW produced a meaningfully different neighborhood structure and was substantially more expensive.
+
+Therefore, the primary MVP trajectory metric is:
+
+**Symmetric Hausdorff distance using Haversine point distance.**
+
+Discrete Fréchet is retained as a later metric-sensitivity configuration.
+
+---
+
+### Step 3.3 — Full pairwise distance matrix
+
+The primary configuration was applied to all final trajectories:
+
+- January trajectories: **554**
+- July trajectories: **800**
+- Combined trajectories: **1,354**
+
+Number of unique trajectory pairs:
+
+**915,981**
+
+The resulting distance matrix has shape:
+
+**1,354 × 1,354**
+
+Pairwise Hausdorff distance distribution:
+
+- Median: **313.826 km**
+- 95th percentile: **715.055 km**
+- Maximum: **1,641.603 km**
+
+The matrix passed structural validation:
+
+- square matrix;
+- finite values;
+- non-negative distances;
+- zero diagonal;
+- symmetric values.
+
+Saved synchronized artifacts:
+
+```text
+outputs/distances/
+├── trajectory_representations_100.npy
+├── trajectory_index.csv
+├── hausdorff_100.npy
+└── hausdorff_100_metadata.json
+```
+
+`trajectory_index.csv` defines the exact row/column ordering used by the matrix and will be preserved throughout clustering so that HDBSCAN labels can always be mapped back to source flights.
+
+### Primary configuration
+
+```text
+10-second validated trajectory
+        ↓
+100-point arc-length representation
+        ↓
+Haversine point distance
+        ↓
+symmetric Hausdorff trajectory distance
+        ↓
+precomputed distance matrix
+        ↓
+manual HDBSCAN
+```
+
+### Planned sensitivity configurations
+
+The primary configuration is not treated as the only possible modeling choice. Later robustness analysis will include, where computationally appropriate:
+
+- **100 vs 200 arc-length points**
+- **Hausdorff vs discrete Fréchet**
+- **5 s / 10 s / 30 s temporal preprocessing evidence**
+- multiple HDBSCAN `min_samples` values
+- multiple HDBSCAN `min_cluster_size` values
+- clustering-membership and noise-label stability
+- month-specific January/July cluster composition
+
+Sensitivity analysis will therefore evaluate whether the final operational-route conclusions remain stable under reasonable alternative modeling choices.
+
+**Next:** Module 4 — Manual HDBSCAN implementation using the precomputed Hausdorff distance matrix.

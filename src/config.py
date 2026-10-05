@@ -42,3 +42,7 @@ PROCESSED_JULY_DIR = (
 QUALITY_OUTPUT_DIR = (
     PROJECT_ROOT / "outputs" / "quality"
 )
+
+DISTANCE_OUTPUT_DIR = (
+    PROJECT_ROOT / "outputs" / "distances"
+)
