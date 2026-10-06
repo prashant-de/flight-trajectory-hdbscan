@@ -46,3 +46,7 @@ QUALITY_OUTPUT_DIR = (
 DISTANCE_OUTPUT_DIR = (
     PROJECT_ROOT / "outputs" / "distances"
 )
+
+HDBSCAN_OUTPUT_DIR = (
+    PROJECT_ROOT / "outputs" / "clusters"
+)
