@@ -919,3 +919,654 @@ that those trajectories are erroneous or operationally abnormal.
 
 **Next:** Module 5 — Representative routes, anomaly-candidate
 characterization, and final clustering evaluation.
+
+---
+
+## Module 5 — Route Interpretation, Anomaly Analysis, and Robustness Evaluation
+
+Module 5 evaluates the operational meaning and robustness of the
+final HDBSCAN clustering result.
+
+The primary clustering configuration remains frozen as:
+
+```text
+100-point arc-length representation
+        ↓
+symmetric Hausdorff + Haversine distance
+        ↓
+manual HDBSCAN
+        ↓
+min_samples = 15
+min_cluster_size = 30
+        ↓
+4 route clusters
+295 HDBSCAN noise / anomaly candidates
+```
+
+The purpose of Module 5 is not to change the primary clustering
+configuration, but to determine:
+
+- what the four route clusters represent;
+- which noise trajectories are strong anomaly candidates;
+- whether unusual trajectories are temporally concentrated;
+- whether the clustering remains stable under reasonable modeling
+  alternatives.
+
+---
+
+### Step 5.1 — Representative Route Medoids
+
+A representative route was identified for each of the four primary
+clusters using the cluster **medoid**.
+
+For a cluster, the medoid is the observed flight trajectory with the
+minimum mean Hausdorff distance to all other members of that cluster.
+
+Unlike an averaged trajectory, the medoid therefore corresponds to
+a real observed flight.
+
+Primary cluster representatives:
+
+```text
+Cluster 0
+    size: 73
+    January: 53
+    July: 20
+    medoid:
+        20260116T220252Z_adde95_JBU1124
+    mean distance to members:
+        148.622 km
+    median distance:
+        137.234 km
+    p95 distance:
+        275.240 km
+
+Cluster 1
+    size: 558
+    January: 142
+    July: 416
+    medoid:
+        20260111T074405Z_adabfe_JBU324
+    mean distance to members:
+        90.300 km
+    median distance:
+        76.319 km
+    p95 distance:
+        178.263 km
+
+Cluster 2
+    size: 88
+    January: 49
+    July: 39
+    medoid:
+        20260112T064839Z_a33328_AAL10
+    mean distance to members:
+        99.586 km
+    median distance:
+        102.699 km
+    p95 distance:
+        145.416 km
+
+Cluster 3
+    size: 340
+    January: 221
+    July: 119
+    medoid:
+        20260131T200523Z_a03765_AAL32
+    mean distance to members:
+        99.908 km
+    median distance:
+        84.981 km
+    p95 distance:
+        189.940 km
+```
+
+These four medoids provide real-flight representatives of the
+recurring geographic route families identified by HDBSCAN.
+
+---
+
+### Step 5.2 — Anomaly-Candidate Characterization
+
+The primary HDBSCAN configuration classified:
+
+**295 / 1,354 trajectories as noise**
+
+These trajectories are interpreted as **anomaly candidates**, not
+automatically as confirmed operational anomalies.
+
+To distinguish strong candidates from parameter-sensitive borderline
+flights, noise persistence was evaluated across the neighboring
+configurations:
+
+```text
+k = 10, min_cluster_size = 30
+k = 15, min_cluster_size = 30
+k = 20, min_cluster_size = 30
+```
+
+Results:
+
+```text
+Noise in 1/3 configurations:   0
+Noise in 2/3 configurations:  56
+Noise in 3/3 configurations: 239
+```
+
+Therefore:
+
+**239 / 295 = 81.0%**
+
+of the primary anomaly candidates remain noise across all three
+nearby `min_samples` configurations.
+
+No primary anomaly candidate was noise only under the selected
+`k = 15` configuration.
+
+For each candidate, additional evidence was calculated using:
+
+- noise persistence;
+- `k = 15` core distance;
+- Hausdorff distance to every primary cluster medoid;
+- nearest representative-route medoid.
+
+Nearest-medoid distance among the 295 candidates:
+
+```text
+minimum:   92.486 km
+median:   201.418 km
+p95:      443.453 km
+maximum:  799.939 km
+```
+
+Core-distance distribution among the candidates:
+
+```text
+minimum:   70.379 km
+median:   115.341 km
+p95:      333.332 km
+maximum:  654.729 km
+```
+
+Candidates are ranked transparently by:
+
+```text
+noise persistence
+        ↓
+distance from nearest route medoid
+        ↓
+core distance
+```
+
+No arbitrary weighted anomaly score was introduced.
+
+---
+
+### Step 5.3 — Visual Validation of Strong Anomaly Candidates
+
+The highest-ranked anomaly candidates were plotted against the four
+representative route medoids.
+
+The strongest candidates showed substantial geographic deviations
+from the recurring route families, including:
+
+- strongly southern trajectories;
+- strongly northern trajectories;
+- large central/eastern deviations;
+- paths substantially separated from every representative route.
+
+This confirmed that the large anomaly-distance values correspond to
+visible route-geometry differences rather than only numerical ranking
+effects.
+
+An important temporal concentration was also observed:
+
+**8 of the top 12 anomaly candidates occurred on July 28, 2026.**
+
+This observation motivated a later event-level investigation.
+
+---
+
+### Step 5.4 — Top-Anomaly Quality Diagnostics
+
+Before interpreting extreme trajectories operationally, the top
+candidates were examined for possible data-quality effects.
+
+Diagnostics included:
+
+- trajectory duration;
+- observation count;
+- maximum time gap;
+- gaps longer than 60 seconds;
+- interpolation percentage;
+- total path length;
+- maximum geographic step;
+- maximum implied step speed.
+
+The top candidates generally contained only small percentages of
+interpolated observations, but several July trajectories contained
+large temporal gaps.
+
+Examples included maximum gaps of approximately:
+
+```text
+910 s
+990 s
+1050 s
+1200 s
+1230 s
+1730 s
+```
+
+Some corresponding implied step speeds exceeded 1,500 km/h.
+
+These diagnostics do not prove that the unusual overall route
+geometry is erroneous, because the speed is calculated across sparse
+observations. However, they show that high-resolution raw ADS-B data
+should be used before making causal claims about individual extreme
+routes.
+
+The July 28 event is therefore retained as a strong anomaly signal
+requiring independent validation rather than being treated as
+confirmed weather rerouting based only on the reduced dataset.
+
+---
+
+### Step 5.5 — Daily Anomaly Concentration
+
+The anomaly analysis was extended from individual trajectories to
+complete flight dates.
+
+For every date, the following were calculated:
+
+- total trajectories;
+- primary HDBSCAN noise count;
+- primary noise percentage;
+- persistent-noise count;
+- persistent-noise percentage;
+- nearest-medoid distance statistics;
+- number of extreme candidates.
+
+An extreme candidate was defined descriptively as a primary noise
+trajectory above the 95th percentile of nearest-medoid distance:
+
+**443.453 km**
+
+This threshold is used for characterization only and is not treated
+as a new clustering rule.
+
+#### July 27–29 event window
+
+```text
+July 27
+    trajectories: 29
+    noise: 16
+    noise rate: 55.17%
+    persistent noise: 14
+    persistent rate: 48.28%
+    extreme candidates: 2
+    median nearest-medoid distance: 245.53 km
+    maximum distance: 501.31 km
+
+July 28
+    trajectories: 20
+    noise: 14
+    noise rate: 70.00%
+    persistent noise: 14
+    persistent rate: 70.00%
+    extreme candidates: 8
+    median nearest-medoid distance: 599.08 km
+    maximum distance: 799.94 km
+
+July 29
+    trajectories: 26
+    noise: 11
+    noise rate: 42.31%
+    persistent noise: 9
+    persistent rate: 34.62%
+    extreme candidates: 0
+    median nearest-medoid distance: 150.66 km
+    maximum distance: 217.10 km
+```
+
+July 28 is therefore unusual not merely because many trajectories
+were classified as noise, but because the noise trajectories were
+simultaneously:
+
+- persistent across nearby HDBSCAN configurations;
+- substantially farther from the representative routes;
+- highly concentrated among the most geometrically extreme cases.
+
+There were **15 extreme candidates** across the complete
+1,354-trajectory dataset.
+
+July 28 contained:
+
+**8 / 15 = 53.3%**
+
+of all extreme candidates while containing only:
+
+**20 / 1,354 ≈ 1.48%**
+
+of the complete dataset.
+
+This represents a strong event-level anomaly concentration.
+
+However, the cause has not yet been established.
+
+A separate high-resolution July 27–29 ADS-B event-validation dataset
+will later be used to investigate this signal independently.
+
+#### Month-level descriptive comparison
+
+```text
+January 2026
+    trajectories: 554
+    primary noise: 89
+    primary noise rate: 16.06%
+    persistent noise: 64
+    persistent noise rate: 11.55%
+    extreme candidates: 1
+
+July 2026
+    trajectories: 800
+    primary noise: 206
+    primary noise rate: 25.75%
+    persistent noise: 175
+    persistent noise rate: 21.88%
+    extreme candidates: 14
+```
+
+These values are treated as descriptive sample differences only.
+
+They are **not interpreted as a general seasonal effect**, because:
+
+- only two months are included;
+- January and July have different data provenance;
+- external operational and weather conditions have not yet been
+  incorporated.
+
+---
+
+### Step 5.6 — Representation-Resolution Sensitivity
+
+The primary trajectory representation uses:
+
+**100 arc-length points**
+
+A full sensitivity analysis was performed using:
+
+**200 arc-length points**
+
+for all 1,354 trajectories.
+
+The same trajectory ordering and Hausdorff implementation were
+preserved.
+
+The complete 200-point matrix contained:
+
+**915,981 unique trajectory pairs**
+
+and passed all structural validations.
+
+200-point Hausdorff distribution:
+
+```text
+median:   314.035 km
+p95:      715.540 km
+maximum: 1641.607 km
+```
+
+#### 100-point vs 200-point distance agreement
+
+Across all 915,981 trajectory pairs:
+
+```text
+Pearson correlation:             0.99998598
+median absolute difference:      0.458730 km
+p95 absolute difference:         2.362387 km
+maximum absolute difference:    18.527053 km
+```
+
+Neighborhood comparison:
+
+```text
+exact nearest-neighbor agreement: 73.04%
+mean top-5 overlap:               83.74%
+mean top-10 overlap:              88.01%
+```
+
+The lower exact nearest-neighbor agreement reflects local ordering
+changes among very similar trajectories, but these changes did not
+materially affect the final HDBSCAN route structure.
+
+#### Final HDBSCAN comparison
+
+The same parameters were applied to both matrices:
+
+```text
+min_samples = 15
+min_cluster_size = 30
+```
+
+Results:
+
+```text
+100-point primary
+    clusters: 4
+    sizes: [73, 88, 340, 558]
+    noise: 295
+
+200-point sensitivity
+    clusters: 4
+    sizes: [73, 89, 344, 557]
+    noise: 291
+```
+
+Partition agreement:
+
+```text
+overall ARI:                         0.989996
+ARI among commonly clustered:       1.000000
+noise-set Jaccard:                   0.979730
+noise-mask agreement:               0.995569
+```
+
+Only **6 of 1,354 trajectories** changed cluster/noise status:
+
+```text
+100-point noise → 200-point cluster: 5
+100-point cluster → 200-point noise: 1
+```
+
+All trajectories classified into clusters by both representations
+retained exactly the same route-family organization.
+
+Therefore, the four major route clusters are robust to doubling the
+trajectory representation resolution.
+
+The 100-point representation is retained because it preserves the
+same scientific route structure while substantially reducing
+computational cost.
+
+---
+
+### Step 5.7 — Trajectory-Metric Sensitivity
+
+The primary trajectory metric is:
+
+**symmetric Hausdorff distance using Haversine point distance**
+
+A complete sensitivity matrix was constructed using:
+
+**discrete Fréchet distance using Haversine point distance**
+
+The same:
+
+- 1,354 trajectories;
+- 100-point arc-length representations;
+- trajectory ordering;
+
+were retained.
+
+The complete discrete Fréchet matrix contained:
+
+**915,981 unique trajectory pairs**
+
+and required:
+
+**4438.620 seconds = 73.98 minutes**
+
+to compute.
+
+The matrix passed structural validation.
+
+Discrete Fréchet distance distribution:
+
+```text
+minimum:     9.655 km
+median:    313.851 km
+p95:       715.311 km
+maximum:  1641.603 km
+```
+
+#### Hausdorff vs Fréchet distance agreement
+
+Across all trajectory pairs:
+
+```text
+Pearson correlation:             0.99992690
+median absolute difference:      0.000000 km
+p95 absolute difference:         0.632555 km
+maximum absolute difference:   176.098414 km
+```
+
+Pair relationship:
+
+```text
+Fréchet < Hausdorff:          0 pairs
+effectively equal:      858,428 pairs
+Fréchet > Hausdorff:     57,553 pairs
+```
+
+Therefore approximately **93.7%** of pairwise distances were
+effectively identical under the numerical tolerance used.
+
+The fact that discrete Fréchet was never below Hausdorff is
+consistent with the additional sequential-order constraint imposed
+by the Fréchet coupling.
+
+Neighborhood agreement:
+
+```text
+exact nearest-neighbor agreement: 94.09%
+mean top-5 overlap:               95.58%
+mean top-10 overlap:              97.07%
+```
+
+#### Final HDBSCAN comparison
+
+The same final HDBSCAN parameters were applied:
+
+```text
+min_samples = 15
+min_cluster_size = 30
+```
+
+Results:
+
+```text
+Hausdorff primary
+    clusters: 4
+    sizes: [73, 88, 340, 558]
+    noise: 295
+
+Discrete Fréchet sensitivity
+    clusters: 4
+    sizes: [77, 88, 340, 557]
+    noise: 292
+```
+
+Partition agreement:
+
+```text
+overall ARI:                         0.993846
+ARI among commonly clustered:       1.000000
+noise-set Jaccard:                   0.983108
+noise-mask agreement:               0.996307
+```
+
+Only **5 of 1,354 trajectories** changed cluster/noise status:
+
+```text
+Hausdorff noise → Fréchet cluster: 4
+Hausdorff cluster → Fréchet noise: 1
+```
+
+Every trajectory classified into a cluster by both metrics retained
+the same route-family assignment.
+
+Therefore, the major recurring route structure is robust to the
+choice between symmetric Hausdorff and discrete Fréchet distance.
+
+Hausdorff is retained as the primary trajectory metric because it:
+
+- produces essentially the same scientific clustering result;
+- preserves the same four recurring route families;
+- produces nearly identical anomaly/noise structure;
+- is substantially less computationally expensive.
+
+---
+
+### Module 5 Robustness Finding
+
+Three major sensitivity dimensions have now been tested:
+
+```text
+HDBSCAN parameter sensitivity
+        ↓
+route families remain stable;
+largest changes occur at the noise boundary
+
+100 vs 200 representation points
+        ↓
+overall ARI = 0.989996
+common-cluster ARI = 1.000000
+
+Hausdorff vs discrete Fréchet
+        ↓
+overall ARI = 0.993846
+common-cluster ARI = 1.000000
+```
+
+Across these sensitivity experiments, the central scientific result
+is consistent:
+
+**The four recurring LAX → JFK route families are highly stable.
+Most modeling sensitivity affects trajectories near the
+cluster/noise boundary rather than the internal organization of the
+major route clusters.**
+
+The final primary modeling choices remain:
+
+```text
+10-second validated trajectories
+        ↓
+100-point arc-length representation
+        ↓
+Haversine point distance
+        ↓
+symmetric Hausdorff trajectory distance
+        ↓
+manual HDBSCAN
+        ↓
+min_samples = 15
+min_cluster_size = 30
+```
+
+The July 28 anomaly concentration remains a separate event-validation
+case study and does not modify the frozen primary clustering model.
+
+**Next:** complete final cluster evaluation and reporting, while the
+independent July 27–29 high-resolution event-validation data is
+being obtained.
