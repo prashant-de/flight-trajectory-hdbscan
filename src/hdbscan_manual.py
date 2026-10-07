@@ -1,79 +1,57 @@
+"""
+Manual HDBSCAN implementation for a precomputed distance matrix.
+
+Pipeline
+--------
+1. Core distances
+2. Mutual-reachability distances
+3. Minimum spanning tree using Prim's algorithm
+4. Single-linkage hierarchy
+5. Condensed hierarchy using min_cluster_size
+6. Cluster stability
+7. Excess-of-Mass (EOM) cluster selection
+8. Final trajectory labels
+
+Important convention
+--------------------
+In this project, min_samples = k means the distance to the
+k-th nearest OTHER sample.
+
+Because the input distance matrix contains zero self-distance,
+the required value is therefore sorted_distances[k].
+
+This convention must remain consistent throughout the project.
+"""
+
 import numpy as np
 import pandas as pd
 
-from src.config import (
-    DISTANCE_OUTPUT_DIR,
-    HDBSCAN_OUTPUT_DIR,
-)
 
+# Distance-matrix validation
 
-# Initial HDBSCAN sensitivity values
-
-MIN_SAMPLES_CANDIDATES = [
-    5,
-    10,
-    15,
-    20,
-    30,
-]
-
-MIN_CLUSTER_SIZE_CANDIDATES = [
-    5,
-    10,
-    20,
-    30,
-    50,
-    75,
-]
-
-
-# Data loading
-
-def load_distance_data():
-    """
-    Load the precomputed Hausdorff distance matrix and the
-    synchronized trajectory index.
-    """
-
-    matrix_path = (
-        DISTANCE_OUTPUT_DIR
-        / "hausdorff_100.npy"
-    )
-
-    index_path = (
-        DISTANCE_OUTPUT_DIR
-        / "trajectory_index.csv"
-    )
-
-    distance_matrix = np.load(
-        matrix_path
-    )
-
-    trajectory_index = pd.read_csv(
-        index_path
-    )
-
-    return (
-        distance_matrix,
-        trajectory_index,
-    )
-
-
-# Validation
-
-def validate_distance_data(
+def validate_distance_matrix(
     distance_matrix,
-    trajectory_index,
 ):
     """
-    Verify that the matrix and trajectory index are synchronized.
+    Validate a precomputed distance matrix.
+
+    Returns
+    -------
+    list[str]
+        Empty list when validation passes.
     """
 
     problems = []
 
+    if distance_matrix.ndim != 2:
+        problems.append(
+            "distance_matrix_not_2d"
+        )
+
+        return problems
+
     if (
-        distance_matrix.ndim != 2
-        or distance_matrix.shape[0]
+        distance_matrix.shape[0]
         != distance_matrix.shape[1]
     ):
         problems.append(
@@ -81,34 +59,6 @@ def validate_distance_data(
         )
 
         return problems
-
-    n = distance_matrix.shape[0]
-
-    if len(
-        trajectory_index
-    ) != n:
-        problems.append(
-            "trajectory_index_length_mismatch"
-        )
-
-    expected_indices = np.arange(
-        n
-    )
-
-    actual_indices = (
-        trajectory_index[
-            "matrix_index"
-        ]
-        .to_numpy()
-    )
-
-    if not np.array_equal(
-        expected_indices,
-        actual_indices,
-    ):
-        problems.append(
-            "matrix_index_not_sequential"
-        )
 
     if not np.all(
         np.isfinite(
@@ -135,30 +85,35 @@ def validate_distance_data(
             "distance_matrix_not_symmetric"
         )
 
+    if not np.allclose(
+        np.diag(
+            distance_matrix
+        ),
+        0.0,
+        atol=1e-12,
+    ):
+        problems.append(
+            "nonzero_diagonal"
+        )
+
     return problems
 
 
-# Core distance
+# 1. Core distances
 
 def compute_core_distances(
     distance_matrix,
     min_samples,
 ):
     """
-    Compute HDBSCAN core distance for every trajectory.
+    Compute the core distance for every sample.
 
-    For one trajectory, the sorted row looks like:
+    Project convention:
+        min_samples = k
+        -> distance to the k-th nearest OTHER sample.
 
-        0,
-        nearest neighbor,
-        second-nearest neighbor,
-        ...
-
-    The zero is the trajectory's distance to itself.
-
-    Therefore for min_samples = k, the core distance is
-    sorted_distances[k], which corresponds to the k-th
-    nearest OTHER trajectory.
+    Since self-distance is zero and occupies position 0,
+    partition index k gives the required neighbor distance.
     """
 
     n = distance_matrix.shape[0]
@@ -171,25 +126,28 @@ def compute_core_distances(
     if min_samples >= n:
         raise ValueError(
             "min_samples must be smaller than "
-            "the number of trajectories."
+            "the number of samples."
         )
 
-    # np.partition is more efficient than sorting every
-    # complete row because we only need one neighbor rank.
     partitioned = np.partition(
         distance_matrix,
         kth=min_samples,
         axis=1,
     )
 
-    core_distances = (
+    return (
         partitioned[
             :,
             min_samples
         ]
+        .astype(
+            "float64",
+            copy=False,
+        )
     )
 
-    return core_distances
+
+# 2. Mutual reachability
 
 def compute_mutual_reachability(
     distance_matrix,
@@ -198,40 +156,42 @@ def compute_mutual_reachability(
     """
     Compute the complete mutual-reachability matrix.
 
-    For trajectories a and b:
-
-        mreach(a, b) =
-            max(
-                core(a),
-                core(b),
-                distance(a, b)
-            )
-
-    The diagonal is left according to the mathematical
-    definition. It is not used as an edge during MST
-    construction.
+    mreach(a, b) =
+        max(
+            core(a),
+            core(b),
+            distance(a, b)
+        )
     """
 
-    if (
-        distance_matrix.shape[0]
-        != len(core_distances)
-    ):
+    n = distance_matrix.shape[0]
+
+    if len(
+        core_distances
+    ) != n:
         raise ValueError(
             "Core-distance length does not match "
             "distance-matrix size."
         )
 
-    mutual_reachability = np.maximum(
+    mutual = np.maximum(
         distance_matrix,
-        core_distances[:, None],
+        core_distances[
+            :,
+            None,
+        ],
     )
 
-    mutual_reachability = np.maximum(
-        mutual_reachability,
-        core_distances[None, :],
+    mutual = np.maximum(
+        mutual,
+        core_distances[
+            None,
+            :,
+        ],
     )
 
-    return mutual_reachability
+    return mutual
+
 
 def validate_mutual_reachability(
     distance_matrix,
@@ -239,7 +199,7 @@ def validate_mutual_reachability(
     core_distances,
 ):
     """
-    Validate properties required before constructing the MST.
+    Validate the mutual-reachability matrix.
     """
 
     problems = []
@@ -272,26 +232,20 @@ def validate_mutual_reachability(
             "not_symmetric"
         )
 
-    # Mutual reachability can never be smaller than
-    # the original trajectory distance.
     if np.any(
         mutual_reachability
         + 1e-12
         < distance_matrix
     ):
         problems.append(
-            "smaller_than_raw_distance"
+            "smaller_than_original_distance"
         )
-
-    expected_diagonal = (
-        core_distances
-    )
 
     if not np.allclose(
         np.diag(
             mutual_reachability
         ),
-        expected_diagonal,
+        core_distances,
         atol=1e-12,
     ):
         problems.append(
@@ -300,18 +254,25 @@ def validate_mutual_reachability(
 
     return problems
 
+
+# 3. Minimum spanning tree
+
 def compute_mst_prim(
     mutual_reachability,
 ):
     """
-    Construct a minimum spanning tree using Prim's algorithm.
+    Construct the minimum spanning tree manually using
+    Prim's algorithm.
 
-    The input is the complete dense mutual-reachability matrix.
+    Returns
+    -------
+    pandas.DataFrame
 
-    Returns a DataFrame with exactly N - 1 edges:
-        source
-        target
-        weight_km
+    Columns
+    -------
+    source
+    target
+    weight_km
     """
 
     n = mutual_reachability.shape[0]
@@ -324,36 +285,32 @@ def compute_mst_prim(
             "Mutual-reachability matrix must be square."
         )
 
-    # Whether each trajectory has already entered the tree.
     in_tree = np.zeros(
         n,
         dtype=bool,
     )
 
-    # Cheapest known edge connecting each outside vertex
-    # to the current tree.
     best_weight = np.full(
         n,
         np.inf,
         dtype="float64",
     )
 
-    # Parent vertex providing that cheapest connection.
     parent = np.full(
         n,
         -1,
         dtype="int64",
     )
 
-    # Start from trajectory 0.
+    # Deterministic starting vertex.
     best_weight[0] = 0.0
 
     edges = []
 
-    for _ in range(n):
+    for _ in range(
+        n
+    ):
 
-        # Select the not-yet-added trajectory with the
-        # smallest connection to the current tree.
         candidate_weights = np.where(
             in_tree,
             np.inf,
@@ -370,12 +327,12 @@ def compute_mst_prim(
             candidate_weights[u]
         ):
             raise RuntimeError(
-                "Graph is disconnected; MST cannot be completed."
+                "Graph is disconnected; "
+                "MST cannot be completed."
             )
 
         in_tree[u] = True
 
-        # The first vertex has no parent.
         if parent[u] != -1:
             edges.append(
                 {
@@ -393,8 +350,6 @@ def compute_mst_prim(
                 }
             )
 
-        # Update the cheapest known connection for every
-        # trajectory still outside the tree.
         row = mutual_reachability[
             u
         ]
@@ -421,32 +376,24 @@ def compute_mst_prim(
         edges
     )
 
+
 def validate_mst(
     mst_edges,
     n_vertices,
 ):
     """
-    Validate basic MST structural properties.
+    Validate edge count, connectivity and acyclicity.
     """
 
     problems = []
 
-    expected_edges = (
-        n_vertices - 1
-    )
-
     if len(
         mst_edges
-    ) != expected_edges:
+    ) != (
+        n_vertices - 1
+    ):
         problems.append(
             "incorrect_edge_count"
-        )
-
-    if len(
-        mst_edges
-    ) == 0:
-        problems.append(
-            "empty_mst"
         )
 
         return problems
@@ -472,14 +419,16 @@ def validate_mst(
             "negative_edge_weight"
         )
 
-    # Connectivity validation with a small manual union-find.
+    # Manual union-find validation
 
     parent = np.arange(
         n_vertices,
         dtype="int64",
     )
 
-    def find(x):
+    def find(
+        x,
+    ):
         while (
             parent[x] != x
         ):
@@ -493,7 +442,10 @@ def validate_mst(
 
         return x
 
-    def union(a, b):
+    def union(
+        a,
+        b,
+    ):
         root_a = find(
             a
         )
@@ -511,35 +463,31 @@ def validate_mst(
 
         return True
 
-    cycle_detected = False
-
     for row in (
         mst_edges.itertuples(
             index=False
         )
     ):
-        merged = union(
+        if not union(
             int(
                 row.source
             ),
             int(
                 row.target
             ),
-        )
+        ):
+            problems.append(
+                "cycle_detected"
+            )
 
-        if not merged:
-            cycle_detected = True
-
-    if cycle_detected:
-        problems.append(
-            "cycle_detected"
-        )
+            break
 
     roots = {
         find(
             vertex
         )
-        for vertex in range(
+        for vertex
+        in range(
             n_vertices
         )
     }
@@ -553,69 +501,32 @@ def validate_mst(
 
     return problems
 
-def mst_edge_set(
-    mst_edges,
-):
-    """
-    Return MST edges as unordered vertex pairs.
 
-    Used to compare tree structure across min_samples settings.
-    """
-
-    edges = set()
-
-    for row in (
-        mst_edges.itertuples(
-            index=False
-        )
-    ):
-        a = int(
-            row.source
-        )
-
-        b = int(
-            row.target
-        )
-
-        edges.add(
-            (
-                min(
-                    a,
-                    b,
-                ),
-                max(
-                    a,
-                    b,
-                ),
-            )
-        )
-
-    return edges
+# 4. Single-linkage hierarchy
 
 def build_single_linkage_hierarchy(
     mst_edges,
     n_vertices,
 ):
     """
-    Build a binary single-linkage hierarchy from an MST.
+    Convert the MST into a binary single-linkage hierarchy.
 
-    Leaf node IDs:
+    Leaf IDs:
         0 ... n_vertices - 1
 
     Internal cluster IDs:
         n_vertices ... 2*n_vertices - 2
-
-    Each MST edge merges two currently separate components.
-    Edges are processed from smallest to largest weight.
     """
 
-    if len(mst_edges) != n_vertices - 1:
+    if len(
+        mst_edges
+    ) != (
+        n_vertices - 1
+    ):
         raise ValueError(
-            "An MST must contain exactly N - 1 edges."
+            "MST must contain exactly N - 1 edges."
         )
 
-    # Deterministic ordering is useful when several MST
-    # edges have exactly the same weight.
     edges = (
         mst_edges
         .sort_values(
@@ -630,8 +541,6 @@ def build_single_linkage_hierarchy(
             drop=True
         )
     )
-
-    # Union-find state
 
     uf_parent = np.arange(
         n_vertices,
@@ -648,31 +557,36 @@ def build_single_linkage_hierarchy(
         dtype="int64",
     )
 
-    def find(vertex):
-        """
-        Find the current union-find component root.
-        """
-
+    def find(
+        vertex,
+    ):
         root = vertex
 
         while (
             uf_parent[root]
             != root
         ):
-            root = uf_parent[root]
+            root = (
+                uf_parent[root]
+            )
 
-        # Path compression.
         while (
             uf_parent[vertex]
             != vertex
         ):
             next_vertex = (
-                uf_parent[vertex]
+                uf_parent[
+                    vertex
+                ]
             )
 
-            uf_parent[vertex] = root
+            uf_parent[
+                vertex
+            ] = root
 
-            vertex = next_vertex
+            vertex = (
+                next_vertex
+            )
 
         return root
 
@@ -682,13 +596,12 @@ def build_single_linkage_hierarchy(
 
     hierarchy_rows = []
 
-    # Merge components in increasing MST-edge order
-
     for edge in (
         edges.itertuples(
             index=False
         )
     ):
+
         source = int(
             edge.source
         )
@@ -697,7 +610,7 @@ def build_single_linkage_hierarchy(
             edge.target
         )
 
-        distance_km = float(
+        distance = float(
             edge.weight_km
         )
 
@@ -711,8 +624,8 @@ def build_single_linkage_hierarchy(
 
         if root_a == root_b:
             raise RuntimeError(
-                "MST edge joined vertices that were already "
-                "inside the same hierarchy component."
+                "MST attempted to merge an already "
+                "connected hierarchy component."
             )
 
         child_a = int(
@@ -748,10 +661,10 @@ def build_single_linkage_hierarchy(
             + size_b
         )
 
-        if distance_km > 0:
+        if distance > 0:
             lambda_value = (
                 1.0
-                / distance_km
+                / distance
             )
         else:
             lambda_value = (
@@ -773,7 +686,7 @@ def build_single_linkage_hierarchy(
                 ),
 
                 "distance_km": (
-                    distance_km
+                    distance
                 ),
 
                 "lambda_value": (
@@ -794,10 +707,6 @@ def build_single_linkage_hierarchy(
             }
         )
 
-        # Union the two graph components.
-        # We can attach root_b to root_a because union-find shape
-        # is unrelated to the actual clustering hierarchy.
-
         uf_parent[
             root_b
         ] = root_a
@@ -816,23 +725,22 @@ def build_single_linkage_hierarchy(
         hierarchy_rows
     )
 
+
 def validate_single_linkage_hierarchy(
     hierarchy,
     n_vertices,
 ):
     """
-    Validate the manually constructed single-linkage tree.
+    Validate the binary hierarchy.
     """
 
     problems = []
 
-    expected_merges = (
-        n_vertices - 1
-    )
-
     if len(
         hierarchy
-    ) != expected_merges:
+    ) != (
+        n_vertices - 1
+    ):
         problems.append(
             "incorrect_merge_count"
         )
@@ -881,32 +789,18 @@ def validate_single_linkage_hierarchy(
             "merge_distances_not_monotonic"
         )
 
-    cluster_sizes = (
-        hierarchy[
-            "cluster_size"
-        ]
-        .to_numpy(
-            dtype="int64"
-        )
-    )
-
-    if np.any(
-        cluster_sizes < 2
-    ):
-        problems.append(
-            "invalid_cluster_size"
-        )
-
     if (
-        cluster_sizes[-1]
+        int(
+            hierarchy[
+                "cluster_size"
+            ].iloc[-1]
+        )
         != n_vertices
     ):
         problems.append(
-            "final_cluster_does_not_contain_all_points"
+            "incorrect_root_size"
         )
 
-    # Every node except the final root should appear exactly
-    # once as a child in the binary hierarchy.
     children = np.concatenate(
         [
             hierarchy[
@@ -949,37 +843,10 @@ def validate_single_linkage_hierarchy(
             "missing_or_invalid_child_nodes"
         )
 
-    lambda_values = (
-        hierarchy[
-            "lambda_value"
-        ]
-        .to_numpy(
-            dtype="float64"
-        )
-    )
-
-    finite_lambda = lambda_values[
-        np.isfinite(
-            lambda_values
-        )
-    ]
-
-    if (
-        len(
-            finite_lambda
-        ) > 1
-        and np.any(
-            np.diff(
-                finite_lambda
-            )
-            > 1e-12
-        )
-    ):
-        problems.append(
-            "lambda_not_nonincreasing"
-        )
-
     return problems
+
+
+# 5. Condensed hierarchy
 
 def build_condensed_tree(
     hierarchy,
@@ -987,23 +854,10 @@ def build_condensed_tree(
     min_cluster_size,
 ):
     """
-    Condense a binary single-linkage hierarchy using the
-    HDBSCAN min_cluster_size rule.
-
-    Condensed cluster IDs are separate from the original
-    hierarchy node IDs.
+    Condense the single-linkage hierarchy according to
+    min_cluster_size.
 
     Cluster 0 is the root condensed cluster.
-
-    Events record either:
-
-        parent cluster -> child cluster
-
-    or:
-
-        parent cluster -> individual point
-
-    at the lambda value where that transition occurs.
     """
 
     if min_cluster_size < 2:
@@ -1014,8 +868,6 @@ def build_condensed_tree(
     total_nodes = (
         2 * n_vertices - 1
     )
-
-    # Store the original binary hierarchy in arrays.
 
     left_child = np.full(
         total_nodes,
@@ -1040,26 +892,37 @@ def build_condensed_tree(
         dtype="float64",
     )
 
-    for row in hierarchy.itertuples(
-        index=False
+    for row in (
+        hierarchy.itertuples(
+            index=False
+        )
     ):
+
         parent = int(
             row.parent
         )
 
-        left_child[parent] = int(
+        left_child[
+            parent
+        ] = int(
             row.left_child
         )
 
-        right_child[parent] = int(
+        right_child[
+            parent
+        ] = int(
             row.right_child
         )
 
-        node_size[parent] = int(
+        node_size[
+            parent
+        ] = int(
             row.cluster_size
         )
 
-        split_lambda[parent] = float(
+        split_lambda[
+            parent
+        ] = float(
             row.lambda_value
         )
 
@@ -1067,15 +930,13 @@ def build_condensed_tree(
         2 * n_vertices - 2
     )
 
-    # Helper: collect all original trajectory leaves under a
-    # hierarchy node without recursion.
-    #
-    # This avoids Python recursion-depth problems for highly
-    # unbalanced trees.
-
     def collect_leaves(
         start_node,
     ):
+        """
+        Collect original trajectory IDs beneath a hierarchy node.
+        """
+
         leaves = []
 
         stack = [
@@ -1085,7 +946,10 @@ def build_condensed_tree(
         ]
 
         while stack:
-            node = stack.pop()
+
+            node = (
+                stack.pop()
+            )
 
             if node < n_vertices:
                 leaves.append(
@@ -1095,19 +959,21 @@ def build_condensed_tree(
             else:
                 stack.append(
                     int(
-                        right_child[node]
+                        right_child[
+                            node
+                        ]
                     )
                 )
 
                 stack.append(
                     int(
-                        left_child[node]
+                        left_child[
+                            node
+                        ]
                     )
                 )
 
         return leaves
-
-    # Condensed tree state
 
     events = []
 
@@ -1123,11 +989,6 @@ def build_condensed_tree(
 
     next_cluster_id = 1
 
-    # Explicit stack avoids recursion-depth problems.
-    #
-    # Each item:
-    #   original hierarchy node,
-    #   current condensed cluster ID
     traversal_stack = [
         (
             root_node,
@@ -1144,28 +1005,38 @@ def build_condensed_tree(
 
         if node < n_vertices:
             raise RuntimeError(
-                "A surviving condensed cluster unexpectedly "
-                "reached a single leaf."
+                "A surviving condensed cluster "
+                "unexpectedly reached one leaf."
             )
 
         left = int(
-            left_child[node]
+            left_child[
+                node
+            ]
         )
 
         right = int(
-            right_child[node]
+            right_child[
+                node
+            ]
         )
 
         lambda_value = float(
-            split_lambda[node]
+            split_lambda[
+                node
+            ]
         )
 
         left_size = int(
-            node_size[left]
+            node_size[
+                left
+            ]
         )
 
         right_size = int(
-            node_size[right]
+            node_size[
+                right
+            ]
         )
 
         left_survives = (
@@ -1178,16 +1049,16 @@ def build_condensed_tree(
             >= min_cluster_size
         )
 
-        # Case 1:
-        # Both children are large enough.
-        #
-        # The parent condensed cluster dies and two new
-        # candidate clusters are born.
+        # ---------------------------------------------------------
+        # Both branches survive:
+        # parent ends and two child clusters are born.
+        # ---------------------------------------------------------
 
         if (
             left_survives
             and right_survives
         ):
+
             left_cluster = (
                 next_cluster_id
             )
@@ -1200,61 +1071,74 @@ def build_condensed_tree(
 
             next_cluster_id += 1
 
-            events.append(
-                {
-                    "parent_cluster": (
-                        current_cluster
+            for (
+                child_cluster,
+                child_node,
+                child_size,
+            ) in [
+                (
+                    left_cluster,
+                    left,
+                    left_size,
+                ),
+                (
+                    right_cluster,
+                    right,
+                    right_size,
+                ),
+            ]:
+
+                events.append(
+                    {
+                        "parent_cluster": (
+                            current_cluster
+                        ),
+
+                        "child_type": (
+                            "cluster"
+                        ),
+
+                        "child_id": (
+                            child_cluster
+                        ),
+
+                        "child_hierarchy_node": (
+                            child_node
+                        ),
+
+                        "lambda_value": (
+                            lambda_value
+                        ),
+
+                        "child_size": (
+                            child_size
+                        ),
+                    }
+                )
+
+                cluster_records[
+                    child_cluster
+                ] = {
+                    "cluster_id": (
+                        child_cluster
                     ),
 
-                    "child_type": (
-                        "cluster"
-                    ),
-
-                    "child_id": (
-                        left_cluster
-                    ),
-
-                    "child_hierarchy_node": (
-                        left
-                    ),
-
-                    "lambda_value": (
+                    "birth_lambda": (
                         lambda_value
                     ),
 
-                    "child_size": (
-                        left_size
+                    "death_lambda": (
+                        np.nan
+                    ),
+
+                    "birth_size": (
+                        child_size
+                    ),
+
+                    "hierarchy_node": (
+                        child_node
                     ),
                 }
-            )
-
-            events.append(
-                {
-                    "parent_cluster": (
-                        current_cluster
-                    ),
-
-                    "child_type": (
-                        "cluster"
-                    ),
-
-                    "child_id": (
-                        right_cluster
-                    ),
-
-                    "child_hierarchy_node": (
-                        right
-                    ),
-
-                    "lambda_value": (
-                        lambda_value
-                    ),
-
-                    "child_size": (
-                        right_size
-                    ),
-                }
-            )
 
             cluster_records[
                 current_cluster
@@ -1262,55 +1146,6 @@ def build_condensed_tree(
                 "death_lambda"
             ] = lambda_value
 
-            cluster_records[
-                left_cluster
-            ] = {
-                "cluster_id": (
-                    left_cluster
-                ),
-
-                "birth_lambda": (
-                    lambda_value
-                ),
-
-                "death_lambda": (
-                    np.nan
-                ),
-
-                "birth_size": (
-                    left_size
-                ),
-
-                "hierarchy_node": (
-                    left
-                ),
-            }
-
-            cluster_records[
-                right_cluster
-            ] = {
-                "cluster_id": (
-                    right_cluster
-                ),
-
-                "birth_lambda": (
-                    lambda_value
-                ),
-
-                "death_lambda": (
-                    np.nan
-                ),
-
-                "birth_size": (
-                    right_size
-                ),
-
-                "hierarchy_node": (
-                    right
-                ),
-            }
-
-            # Push right first so left is processed first.
             traversal_stack.append(
                 (
                     right,
@@ -1325,23 +1160,21 @@ def build_condensed_tree(
                 )
             )
 
-        # Case 2:
-        # Left survives, right is too small.
-        #
-        # Right-side trajectories fall out.
-        # Left continues as the SAME condensed cluster.
+        # ---------------------------------------------------------
+        # Only left survives.
+        # ---------------------------------------------------------
 
         elif (
             left_survives
             and not right_survives
         ):
-            fallen_points = (
+
+            for point in (
                 collect_leaves(
                     right
                 )
-            )
+            ):
 
-            for point in fallen_points:
                 events.append(
                     {
                         "parent_cluster": (
@@ -1375,20 +1208,21 @@ def build_condensed_tree(
                 )
             )
 
-        # Case 3:
-        # Right survives, left is too small.
+        # ---------------------------------------------------------
+        # Only right survives.
+        # ---------------------------------------------------------
 
         elif (
             right_survives
             and not left_survives
         ):
-            fallen_points = (
+
+            for point in (
                 collect_leaves(
                     left
                 )
-            )
+            ):
 
-            for point in fallen_points:
                 events.append(
                     {
                         "parent_cluster": (
@@ -1422,13 +1256,12 @@ def build_condensed_tree(
                 )
             )
 
-        # Case 4:
-        # Neither child reaches min_cluster_size.
-        #
-        # All remaining points leave the current cluster.
-        # The cluster dies here.
+        # ---------------------------------------------------------
+        # Neither branch survives.
+        # ---------------------------------------------------------
 
         else:
+
             fallen_points = (
                 collect_leaves(
                     left
@@ -1438,7 +1271,10 @@ def build_condensed_tree(
                 )
             )
 
-            for point in fallen_points:
+            for point in (
+                fallen_points
+            ):
+
                 events.append(
                     {
                         "parent_cluster": (
@@ -1475,20 +1311,25 @@ def build_condensed_tree(
         events
     )
 
-    cluster_table = pd.DataFrame(
-        list(
-            cluster_records.values()
+    cluster_table = (
+        pd.DataFrame(
+            list(
+                cluster_records.values()
+            )
         )
-    ).sort_values(
-        "cluster_id"
-    ).reset_index(
-        drop=True
+        .sort_values(
+            "cluster_id"
+        )
+        .reset_index(
+            drop=True
+        )
     )
 
     return (
         condensed_tree,
         cluster_table,
     )
+
 
 def validate_condensed_tree(
     condensed_tree,
@@ -1497,7 +1338,7 @@ def validate_condensed_tree(
     min_cluster_size,
 ):
     """
-    Validate core structural properties of a condensed tree.
+    Validate the condensed hierarchy.
     """
 
     problems = []
@@ -1520,8 +1361,6 @@ def validate_condensed_tree(
         ]
     )
 
-    # Every original trajectory should eventually fall out
-    # exactly once.
     point_ids = (
         point_rows[
             "child_id"
@@ -1543,67 +1382,50 @@ def validate_condensed_tree(
         return_counts=True,
     )
 
-    if (
-        len(
-            unique_points
-        )
-        != n_vertices
-    ):
-        problems.append(
-            "missing_points"
-        )
-
-    elif not np.array_equal(
+    if not np.array_equal(
         unique_points,
         np.arange(
             n_vertices
         ),
     ):
         problems.append(
-            "invalid_point_ids"
+            "missing_or_invalid_points"
         )
 
-    if (
-        len(
-            counts
-        ) > 0
-        and np.any(
-            counts != 1
-        )
+    if np.any(
+        counts != 1
     ):
         problems.append(
             "point_falls_out_multiple_times"
         )
 
-    # Every non-root condensed cluster must have one parent.
-    expected_nonroot_clusters = (
+    if len(
+        cluster_rows
+    ) != (
         len(
             cluster_table
         )
         - 1
-    )
-
-    if len(
-        cluster_rows
-    ) != expected_nonroot_clusters:
+    ):
         problems.append(
             "incorrect_cluster_parent_count"
         )
 
-    if len(
-        cluster_rows
-    ) > 0:
-        if np.any(
+    if (
+        len(
+            cluster_rows
+        ) > 0
+        and np.any(
             cluster_rows[
                 "child_size"
             ]
             < min_cluster_size
-        ):
-            problems.append(
-                "undersized_condensed_cluster"
-            )
+        )
+    ):
+        problems.append(
+            "undersized_condensed_cluster"
+        )
 
-    # Cluster IDs must be sequential.
     expected_cluster_ids = np.arange(
         len(
             cluster_table
@@ -1628,45 +1450,33 @@ def validate_condensed_tree(
             "nonsequential_cluster_ids"
         )
 
-    # Every condensed cluster must have a valid death lambda.
-    if cluster_table[
-        "death_lambda"
-    ].isna().any():
+    if (
+        cluster_table[
+            "death_lambda"
+        ]
+        .isna()
+        .any()
+    ):
         problems.append(
             "cluster_missing_death_lambda"
         )
 
-    if np.any(
-        cluster_table[
-            "death_lambda"
-        ].to_numpy()
-        + 1e-12
-        <
-        cluster_table[
-            "birth_lambda"
-        ].to_numpy()
-    ):
-        problems.append(
-            "death_before_birth"
-        )
-
     return problems
+
+
+# 6. Cluster stability
 
 def compute_cluster_stability(
     condensed_tree,
     cluster_table,
 ):
     """
-    Compute HDBSCAN stability for every condensed cluster.
+    Compute HDBSCAN cluster stability.
 
-    For each event leaving parent cluster C:
+    Each departure event contributes:
 
-        contribution =
-            child_size *
-            (lambda_event - lambda_birth(C))
-
-    This is equivalent to summing each trajectory's
-    lifetime inside the cluster.
+        child_size *
+        (lambda_event - lambda_birth(parent))
     """
 
     result = (
@@ -1684,15 +1494,15 @@ def compute_cluster_stability(
         .to_dict()
     )
 
-    event_table = (
+    events = (
         condensed_tree
         .copy()
     )
 
-    event_table[
+    events[
         "parent_birth_lambda"
     ] = (
-        event_table[
+        events[
             "parent_cluster"
         ]
         .map(
@@ -1700,64 +1510,65 @@ def compute_cluster_stability(
         )
     )
 
-    if event_table[
-        "parent_birth_lambda"
-    ].isna().any():
+    if (
+        events[
+            "parent_birth_lambda"
+        ]
+        .isna()
+        .any()
+    ):
         raise RuntimeError(
-            "A condensed-tree event references "
-            "an unknown parent cluster."
+            "Unknown parent cluster in condensed tree."
         )
 
-    event_table[
+    events[
         "stability_contribution"
     ] = (
-        event_table[
+        events[
             "child_size"
         ]
         * (
-            event_table[
+            events[
                 "lambda_value"
             ]
-            - event_table[
+            - events[
                 "parent_birth_lambda"
             ]
         )
     )
 
-    # Tiny negative floating-point differences should not
-    # contribute negative stability.
     tiny_negative = (
         (
-            event_table[
+            events[
                 "stability_contribution"
             ]
             < 0
         )
         & (
-            event_table[
+            events[
                 "stability_contribution"
             ]
             > -1e-12
         )
     )
 
-    event_table.loc[
+    events.loc[
         tiny_negative,
         "stability_contribution",
     ] = 0.0
 
     if np.any(
-        event_table[
+        events[
             "stability_contribution"
         ]
         < 0
     ):
         raise RuntimeError(
-            "Negative cluster stability contribution found."
+            "Negative stability contribution found."
         )
 
-    stability_by_cluster = (
-        event_table
+    stability = (
+        events
         .groupby(
             "parent_cluster"
         )[
@@ -1773,7 +1584,7 @@ def compute_cluster_stability(
             "cluster_id"
         ]
         .map(
-            stability_by_cluster
+            stability
         )
         .fillna(
             0.0
@@ -1782,20 +1593,16 @@ def compute_cluster_stability(
 
     return result
 
+
+# 7. Excess-of-Mass cluster selection
+
 def select_clusters_eom(
     condensed_tree,
     cluster_table,
     allow_single_cluster=False,
 ):
     """
-    Select final clusters using the HDBSCAN
-    Excess-of-Mass (EOM) rule.
-
-    A candidate cluster is selected when its own
-    stability is greater than or equal to the
-    effective stability of its selected descendants.
-
-    By default the root cluster is never selected.
+    Select clusters using the Excess-of-Mass rule.
     """
 
     stability = (
@@ -1821,41 +1628,30 @@ def select_clusters_eom(
         int(
             cluster_id
         ): []
-        for cluster_id in (
-            cluster_table[
-                "cluster_id"
-            ]
-        )
+        for cluster_id
+        in cluster_table[
+            "cluster_id"
+        ]
     }
 
     for row in (
-        cluster_edges
-        .itertuples(
+        cluster_edges.itertuples(
             index=False
         )
     ):
-        parent = int(
-            row.parent_cluster
-        )
-
-        child = int(
-            row.child_id
-        )
-
         children[
-            parent
+            int(
+                row.parent_cluster
+            )
         ].append(
-            child
+            int(
+                row.child_id
+            )
         )
 
     def solve(
         cluster_id,
     ):
-        """
-        Return:
-            selected cluster IDs in this subtree,
-            effective EOM stability of the subtree
-        """
 
         child_clusters = (
             children[
@@ -1863,7 +1659,6 @@ def select_clusters_eom(
             ]
         )
 
-        # Leaf candidate cluster.
         if not child_clusters:
 
             if (
@@ -1886,35 +1681,35 @@ def select_clusters_eom(
                 ),
             )
 
-        descendant_selected = set()
+        selected_descendants = set()
 
         descendant_stability = 0.0
 
         for child in (
             child_clusters
         ):
+
             (
-                child_selected,
-                child_stability,
+                selected,
+                effective_stability,
             ) = solve(
                 child
             )
 
-            descendant_selected.update(
-                child_selected
+            selected_descendants.update(
+                selected
             )
 
             descendant_stability += (
-                child_stability
+                effective_stability
             )
 
-        # Root is excluded unless explicitly requested.
         if (
             cluster_id == 0
             and not allow_single_cluster
         ):
             return (
-                descendant_selected,
+                selected_descendants,
                 descendant_stability,
             )
 
@@ -1936,20 +1731,16 @@ def select_clusters_eom(
             )
 
         return (
-            descendant_selected,
+            selected_descendants,
             descendant_stability,
         )
 
-    selected_clusters, selected_stability = (
-        solve(
-            0
-        )
+    return solve(
+        0
     )
 
-    return (
-        selected_clusters,
-        selected_stability,
-    )
+
+# 8. Final labels
 
 def assign_selected_cluster_labels(
     condensed_tree,
@@ -1957,12 +1748,9 @@ def assign_selected_cluster_labels(
     n_vertices,
 ):
     """
-    Assign every trajectory either to an EOM-selected
-    cluster or to noise (-1).
+    Assign selected HDBSCAN clusters to original trajectories.
 
-    A trajectory belongs to a selected cluster when the
-    condensed cluster from which it falls out is that
-    selected cluster or one of its descendants.
+    Noise receives label -1.
     """
 
     cluster_edges = (
@@ -1986,8 +1774,7 @@ def assign_selected_cluster_labels(
     parent_of_cluster = {}
 
     for row in (
-        cluster_edges
-        .itertuples(
+        cluster_edges.itertuples(
             index=False
         )
     ):
@@ -1999,23 +1786,24 @@ def assign_selected_cluster_labels(
             row.parent_cluster
         )
 
-    selected_clusters = set(
+    selected_clusters = {
         int(
             cluster_id
         )
-        for cluster_id in (
-            selected_clusters
-        )
-    )
+        for cluster_id
+        in selected_clusters
+    }
 
-    # Stable human-readable labels 0,1,2,...
     ordered_selected = sorted(
         selected_clusters
     )
 
     cluster_to_label = {
         cluster_id: label
-        for label, cluster_id
+        for (
+            label,
+            cluster_id,
+        )
         in enumerate(
             ordered_selected
         )
@@ -2034,11 +1822,11 @@ def assign_selected_cluster_labels(
     )
 
     for row in (
-        point_edges
-        .itertuples(
+        point_edges.itertuples(
             index=False
         )
     ):
+
         point = int(
             row.child_id
         )
@@ -2073,10 +1861,8 @@ def assign_selected_cluster_labels(
                 ]
             )
 
-        if (
-            assigned_cluster
-            is not None
-        ):
+        if assigned_cluster is not None:
+
             labels[
                 point
             ] = cluster_to_label[
@@ -2093,13 +1879,14 @@ def assign_selected_cluster_labels(
         cluster_to_label,
     )
 
+
 def validate_final_labels(
     labels,
     selected_clusters,
     n_vertices,
 ):
     """
-    Validate the final EOM labeling result.
+    Validate final selected-cluster labels.
     """
 
     problems = []
@@ -2113,7 +1900,7 @@ def validate_final_labels(
 
         return problems
 
-    valid_labels = (
+    clustered = (
         labels[
             labels >= 0
         ]
@@ -2128,16 +1915,16 @@ def validate_final_labels(
     if expected_cluster_count == 0:
 
         if len(
-            valid_labels
-        ) != 0:
+            clustered
+        ) > 0:
             problems.append(
-                "labels_exist_without_selected_clusters"
+                "labels_without_selected_clusters"
             )
 
         return problems
 
     unique_labels = np.unique(
-        valid_labels
+        clustered
     )
 
     expected_labels = np.arange(
@@ -2149,207 +1936,41 @@ def validate_final_labels(
         expected_labels,
     ):
         problems.append(
-            "nonsequential_final_labels"
-        )
-
-    counts = np.bincount(
-        valid_labels,
-        minlength=expected_cluster_count,
-    )
-
-    if np.any(
-        counts <= 0
-    ):
-        problems.append(
-            "empty_selected_cluster"
+            "nonsequential_cluster_labels"
         )
 
     return problems
 
 
-def summarize_hierarchy(
-    hierarchy,
+# Complete manual HDBSCAN pipeline
+
+def fit_hdbscan_precomputed(
+    distance_matrix,
     min_samples,
+    min_cluster_size,
+    allow_single_cluster=False,
 ):
     """
-    Summarize merge levels and tied edge weights.
+    Run the complete manual HDBSCAN pipeline on a
+    precomputed distance matrix.
+
+    Returns
+    -------
+    dict
+        Contains all major intermediate and final artifacts.
     """
 
-    distances = (
-        hierarchy[
-            "distance_km"
-        ]
-        .to_numpy(
-            dtype="float64"
+    distance_problems = (
+        validate_distance_matrix(
+            distance_matrix
         )
     )
 
-    distance_series = pd.Series(
-        distances
-    )
-
-    duplicated = (
-        distance_series
-        .duplicated(
-            keep=False
-        )
-        .to_numpy()
-    )
-
-    value_counts = (
-        distance_series
-        .value_counts()
-    )
-
-    return {
-        "min_samples": (
-            min_samples
-        ),
-
-        "merge_count": (
-            len(
-                hierarchy
-            )
-        ),
-
-        "minimum_merge_km": (
-            np.min(
-                distances
-            )
-        ),
-
-        "median_merge_km": (
-            np.median(
-                distances
-            )
-        ),
-
-        "p95_merge_km": (
-            np.percentile(
-                distances,
-                95,
-            )
-        ),
-
-        "maximum_merge_km": (
-            np.max(
-                distances
-            )
-        ),
-
-        "unique_merge_levels": (
-            distance_series
-            .nunique()
-        ),
-
-        "tied_merge_rows": (
-            int(
-                duplicated.sum()
-            )
-        ),
-
-        "tied_merge_percent": (
-            duplicated.mean()
-            * 100
-        ),
-
-        "largest_tie_group": (
-            int(
-                value_counts.max()
-            )
-        ),
-
-        "root_cluster_size": (
-            int(
-                hierarchy[
-                    "cluster_size"
-                ].iloc[-1]
-            )
-        ),
-    }
-
-
-
-
-# Core-distance sensitivity summary
-def summarize_core_distances(
-    core_distances,
-    min_samples,
-):
-    """
-    Return distribution statistics for one min_samples value.
-    """
-
-    return {
-        "min_samples": (
-            min_samples
-        ),
-
-        "minimum_km": (
-            np.min(
-                core_distances
-            )
-        ),
-
-        "p05_km": (
-            np.percentile(
-                core_distances,
-                5,
-            )
-        ),
-
-        "p25_km": (
-            np.percentile(
-                core_distances,
-                25,
-            )
-        ),
-
-        "median_km": (
-            np.median(
-                core_distances
-            )
-        ),
-
-        "p75_km": (
-            np.percentile(
-                core_distances,
-                75,
-            )
-        ),
-
-        "p95_km": (
-            np.percentile(
-                core_distances,
-                95,
-            )
-        ),
-
-        "maximum_km": (
-            np.max(
-                core_distances
-            )
-        ),
-    }
-
-
-# Main
-def main():
-    (
-        distance_matrix,
-        trajectory_index,
-    ) = load_distance_data()
-
-    problems = validate_distance_data(
-        distance_matrix,
-        trajectory_index,
-    )
-
-    if problems:
+    if distance_problems:
         raise RuntimeError(
-            "Distance-data validation failed: "
+            "Distance-matrix validation failed: "
             + ", ".join(
-                problems
+                distance_problems
             )
         )
 
@@ -2357,344 +1978,221 @@ def main():
         0
     ]
 
-    HDBSCAN_OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    # Core distances
 
-    print(
-        "Trajectories:",
-        n,
-    )
-
-    print(
-        "\nRunning EOM sensitivity across:"
-    )
-
-    print(
-        "min_samples:",
-        MIN_SAMPLES_CANDIDATES,
-    )
-
-    print(
-        "min_cluster_size:",
-        MIN_CLUSTER_SIZE_CANDIDATES,
-    )
-
-    summary_records = []
-
-    for min_samples in (
-        MIN_SAMPLES_CANDIDATES
-    ):
-
-        for min_cluster_size in (
-            MIN_CLUSTER_SIZE_CANDIDATES
-        ):
-
-            condensed_path = (
-                HDBSCAN_OUTPUT_DIR
-                / (
-                    "condensed_tree_"
-                    f"k{min_samples}_"
-                    f"mcs{min_cluster_size}.csv"
-                )
-            )
-
-            cluster_path = (
-                HDBSCAN_OUTPUT_DIR
-                / (
-                    "condensed_clusters_"
-                    f"k{min_samples}_"
-                    f"mcs{min_cluster_size}.csv"
-                )
-            )
-
-            condensed_tree = (
-                pd.read_csv(
-                    condensed_path
-                )
-            )
-
-            cluster_table = (
-                pd.read_csv(
-                    cluster_path
-                )
-            )
-
-            # Stability
-
-            cluster_table = (
-                compute_cluster_stability(
-                    condensed_tree,
-                    cluster_table,
-                )
-            )
-
-            if not np.all(
-                np.isfinite(
-                    cluster_table[
-                        "stability"
-                    ]
-                )
-            ):
-                raise RuntimeError(
-                    "Non-finite cluster stability found."
-                )
-
-            if np.any(
-                cluster_table[
-                    "stability"
-                ]
-                < 0
-            ):
-                raise RuntimeError(
-                    "Negative cluster stability found."
-                )
-
-            # EOM
-
-            (
-                selected_clusters,
-                selected_stability,
-            ) = select_clusters_eom(
-                condensed_tree,
-                cluster_table,
-                allow_single_cluster=False,
-            )
-
-            (
-                labels,
-                selected_cluster_ids,
-                cluster_to_label,
-            ) = assign_selected_cluster_labels(
-                condensed_tree,
-                selected_clusters,
-                n_vertices=n,
-            )
-
-            label_validation = (
-                validate_final_labels(
-                    labels,
-                    selected_clusters,
-                    n_vertices=n,
-                )
-            )
-
-            if label_validation:
-                raise RuntimeError(
-                    "Final-label validation failed "
-                    f"for k={min_samples}, "
-                    f"mcs={min_cluster_size}: "
-                    + ", ".join(
-                        label_validation
-                    )
-                )
-
-            # Final cluster statistics
-
-            clustered_mask = (
-                labels >= 0
-            )
-
-            noise_count = int(
-                (
-                    labels == -1
-                ).sum()
-            )
-
-            noise_percent = (
-                noise_count
-                / n
-                * 100
-            )
-
-            if len(
-                selected_clusters
-            ) > 0:
-
-                cluster_sizes = (
-                    np.bincount(
-                        labels[
-                            clustered_mask
-                        ],
-                        minlength=len(
-                            selected_clusters
-                        ),
-                    )
-                )
-
-                minimum_cluster_size = int(
-                    cluster_sizes.min()
-                )
-
-                median_cluster_size = float(
-                    np.median(
-                        cluster_sizes
-                    )
-                )
-
-                maximum_cluster_size = int(
-                    cluster_sizes.max()
-                )
-
-            else:
-                cluster_sizes = np.array(
-                    [],
-                    dtype="int64",
-                )
-
-                minimum_cluster_size = 0
-                median_cluster_size = 0.0
-                maximum_cluster_size = 0
-
-            summary_records.append(
-                {
-                    "min_samples": (
-                        min_samples
-                    ),
-
-                    "min_cluster_size": (
-                        min_cluster_size
-                    ),
-
-                    "selected_clusters": (
-                        len(
-                            selected_clusters
-                        )
-                    ),
-
-                    "noise_count": (
-                        noise_count
-                    ),
-
-                    "noise_percent": (
-                        noise_percent
-                    ),
-
-                    "minimum_final_cluster": (
-                        minimum_cluster_size
-                    ),
-
-                    "median_final_cluster": (
-                        median_cluster_size
-                    ),
-
-                    "maximum_final_cluster": (
-                        maximum_cluster_size
-                    ),
-
-                    "selected_stability": (
-                        selected_stability
-                    ),
-                }
-            )
-
-            # Save cluster-selection table
-
-            cluster_table[
-                "selected"
-            ] = (
-                cluster_table[
-                    "cluster_id"
-                ]
-                .isin(
-                    selected_clusters
-                )
-            )
-
-            stability_path = (
-                HDBSCAN_OUTPUT_DIR
-                / (
-                    "cluster_stability_"
-                    f"k{min_samples}_"
-                    f"mcs{min_cluster_size}.csv"
-                )
-            )
-
-            cluster_table.to_csv(
-                stability_path,
-                index=False,
-            )
-
-            # Save final trajectory labels
-
-            label_table = (
-                trajectory_index
-                .copy()
-            )
-
-            label_table[
-                "cluster_label"
-            ] = labels
-
-            label_table[
-                "selected_cluster_id"
-            ] = selected_cluster_ids
-
-            label_path = (
-                HDBSCAN_OUTPUT_DIR
-                / (
-                    "labels_"
-                    f"k{min_samples}_"
-                    f"mcs{min_cluster_size}.csv"
-                )
-            )
-
-            label_table.to_csv(
-                label_path,
-                index=False,
-            )
-
-    summary = pd.DataFrame(
-        summary_records
-    )
-
-    summary_path = (
-        HDBSCAN_OUTPUT_DIR
-        / "eom_sensitivity_summary.csv"
-    )
-
-    summary.to_csv(
-        summary_path,
-        index=False,
-    )
-
-    print(
-        "\n"
-        + "=" * 90
-    )
-
-    print(
-        "HDBSCAN EOM CLUSTER-SELECTION SENSITIVITY"
-    )
-
-    print(
-        "=" * 90
-    )
-
-    print(
-        "\nFinal cluster summary:"
-    )
-
-    print(
-        summary.to_string(
-            index=False
+    core_distances = (
+        compute_core_distances(
+            distance_matrix,
+            min_samples,
         )
     )
 
-    print(
-        "\nAll EOM label validations: PASS"
+    # Mutual reachability
+
+    mutual_reachability = (
+        compute_mutual_reachability(
+            distance_matrix,
+            core_distances,
+        )
     )
 
-    print(
-        "\nSaved:"
+    mutual_problems = (
+        validate_mutual_reachability(
+            distance_matrix,
+            mutual_reachability,
+            core_distances,
+        )
     )
 
-    print(
-        "outputs/clusters/"
-        "eom_sensitivity_summary.csv"
+    if mutual_problems:
+        raise RuntimeError(
+            "Mutual-reachability validation failed: "
+            + ", ".join(
+                mutual_problems
+            )
+        )
+
+    # MST
+
+    mst = compute_mst_prim(
+        mutual_reachability
     )
 
+    mst_problems = (
+        validate_mst(
+            mst,
+            n,
+        )
+    )
 
-if __name__ == "__main__":
-    main()
+    if mst_problems:
+        raise RuntimeError(
+            "MST validation failed: "
+            + ", ".join(
+                mst_problems
+            )
+        )
+
+    # Single-linkage hierarchy
+
+    hierarchy = (
+        build_single_linkage_hierarchy(
+            mst,
+            n,
+        )
+    )
+
+    hierarchy_problems = (
+        validate_single_linkage_hierarchy(
+            hierarchy,
+            n,
+        )
+    )
+
+    if hierarchy_problems:
+        raise RuntimeError(
+            "Hierarchy validation failed: "
+            + ", ".join(
+                hierarchy_problems
+            )
+        )
+
+    # Condensed hierarchy
+
+    (
+        condensed_tree,
+        cluster_table,
+    ) = build_condensed_tree(
+        hierarchy,
+        n,
+        min_cluster_size,
+    )
+
+    condensed_problems = (
+        validate_condensed_tree(
+            condensed_tree,
+            cluster_table,
+            n,
+            min_cluster_size,
+        )
+    )
+
+    if condensed_problems:
+        raise RuntimeError(
+            "Condensed-tree validation failed: "
+            + ", ".join(
+                condensed_problems
+            )
+        )
+
+    # Stability
+
+    cluster_table = (
+        compute_cluster_stability(
+            condensed_tree,
+            cluster_table,
+        )
+    )
+
+    # EOM selection
+
+    (
+        selected_clusters,
+        selected_stability,
+    ) = select_clusters_eom(
+        condensed_tree,
+        cluster_table,
+        allow_single_cluster=(
+            allow_single_cluster
+        ),
+    )
+
+    # Labels
+
+    (
+        labels,
+        selected_cluster_ids,
+        cluster_to_label,
+    ) = assign_selected_cluster_labels(
+        condensed_tree,
+        selected_clusters,
+        n,
+    )
+
+    label_problems = (
+        validate_final_labels(
+            labels,
+            selected_clusters,
+            n,
+        )
+    )
+
+    if label_problems:
+        raise RuntimeError(
+            "Final-label validation failed: "
+            + ", ".join(
+                label_problems
+            )
+        )
+
+    cluster_table = (
+        cluster_table
+        .copy()
+    )
+
+    cluster_table[
+        "selected"
+    ] = (
+        cluster_table[
+            "cluster_id"
+        ]
+        .isin(
+            selected_clusters
+        )
+    )
+
+    return {
+        "core_distances": (
+            core_distances
+        ),
+
+        "mutual_reachability": (
+            mutual_reachability
+        ),
+
+        "mst": (
+            mst
+        ),
+
+        "single_linkage": (
+            hierarchy
+        ),
+
+        "condensed_tree": (
+            condensed_tree
+        ),
+
+        "cluster_table": (
+            cluster_table
+        ),
+
+        "selected_clusters": (
+            selected_clusters
+        ),
+
+        "selected_stability": (
+            selected_stability
+        ),
+
+        "labels": (
+            labels
+        ),
+
+        "selected_cluster_ids": (
+            selected_cluster_ids
+        ),
+
+        "cluster_to_label": (
+            cluster_to_label
+        ),
+    }

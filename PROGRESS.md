@@ -479,4 +479,443 @@ The primary configuration is not treated as the only possible modeling choice. L
 
 Sensitivity analysis will therefore evaluate whether the final operational-route conclusions remain stable under reasonable alternative modeling choices.
 
-**Next:** Module 4 — Manual HDBSCAN implementation using the precomputed Hausdorff distance matrix.
+---
+
+## Module 4 — Manual HDBSCAN Clustering
+
+Module 4 implemented HDBSCAN manually using the precomputed
+1,354 × 1,354 symmetric Hausdorff trajectory-distance matrix.
+
+The clustering unit remained one complete flight trajectory.
+
+The manual implementation followed the HDBSCAN pipeline:
+
+```text
+precomputed Hausdorff distance matrix
+        ↓
+core distances
+        ↓
+mutual-reachability distances
+        ↓
+minimum spanning tree
+        ↓
+single-linkage hierarchy
+        ↓
+condensed hierarchy
+        ↓
+cluster stability
+        ↓
+Excess-of-Mass cluster selection
+        ↓
+final trajectory labels
+```
+
+No HDBSCAN library was used to construct the primary clustering
+implementation.
+
+### Step 4.1 — Core distances
+
+The following `min_samples` values were evaluated:
+
+```text
+5, 10, 15, 20, 30
+```
+
+In the manual implementation, `min_samples = k` means the distance
+to the **k-th nearest other trajectory**.
+
+Median core distances were:
+
+- `k = 5`: **44.605 km**
+- `k = 10`: **51.463 km**
+- `k = 15`: **56.280 km**
+- `k = 20`: **59.680 km**
+- `k = 30`: **67.073 km**
+
+Core-distance structure remained strongly correlated across the
+tested parameter range.
+
+---
+
+### Step 4.2 — Mutual-Reachability Distances
+
+For trajectories `a` and `b`, mutual-reachability distance was
+computed as:
+
+```text
+max(
+    core_distance(a),
+    core_distance(b),
+    original_trajectory_distance(a, b)
+)
+```
+
+All mutual-reachability matrices passed validation for:
+
+- finite values;
+- symmetry;
+- consistency with original pairwise distances;
+- correct core-distance diagonal.
+
+As `min_samples` increased, progressively more local pairwise
+distances were affected by density regularization.
+
+---
+
+### Step 4.3 — Minimum Spanning Tree
+
+The complete mutual-reachability graph was reduced to a minimum
+spanning tree using a manual implementation of **Prim's algorithm**.
+
+For each configuration:
+
+- vertices: **1,354 trajectories**
+- complete-graph unique edges: **915,981**
+- MST edges: **1,353**
+
+Prim's algorithm was selected because the mutual-reachability graph
+was already represented as a dense matrix, making a dense
+`O(V²)` Prim implementation appropriate without explicitly sorting
+all complete-graph edges.
+
+All generated MSTs passed connectivity, edge-count, and cycle
+validation.
+
+---
+
+### Step 4.4 — Single-Linkage Hierarchy
+
+The MST was converted into a binary single-linkage hierarchy.
+
+For every tested `min_samples` configuration:
+
+- merge count: **1,353**
+- final root size: **1,354 trajectories**
+- merge distances were monotonically non-decreasing.
+
+The hierarchy therefore reconstructed the complete trajectory set
+from individual flights to one final root component.
+
+---
+
+### Step 4.5 — Condensed Hierarchy
+
+The following `min_cluster_size` candidates were evaluated:
+
+```text
+5, 10, 20, 30, 50, 75
+```
+
+Combined with the five `min_samples` values, this produced:
+
+**30 HDBSCAN parameter configurations**
+
+For every configuration:
+
+- each trajectory fell out of the condensed hierarchy exactly once;
+- surviving candidate clusters satisfied the requested
+  `min_cluster_size`;
+- condensed-tree structural validation passed.
+
+---
+
+### Step 4.6 — Cluster Stability and EOM Selection
+
+Cluster stability was computed from the condensed hierarchy and
+final clusters were selected using the
+**Excess-of-Mass (EOM)** criterion.
+
+The root cluster was not allowed to be selected:
+
+```text
+allow_single_cluster = False
+```
+
+The parameter sweep showed that many neighboring configurations
+produced highly similar or exactly equivalent partitions.
+
+Examples of exact-equivalent partitions included:
+
+- `k = 5`: `mcs = 20` and `mcs = 30`
+- `k = 5`: `mcs = 50` and `mcs = 75`
+- `k = 10`: `mcs = 5` and `mcs = 10`
+- `k = 10`: `mcs = 30`, `mcs = 50`, and `mcs = 75`
+- `k = 15`: `mcs = 20`, `mcs = 30`, and `mcs = 50`
+- `k = 20`: `mcs = 10`, `mcs = 20`, `mcs = 30`, and `mcs = 50`
+- `k = 30`: `mcs = 5`, `mcs = 10`, and `mcs = 30`
+
+This indicates that substantial regions of the tested parameter
+space produce stable route-group structure.
+
+---
+
+### Step 4.7 — HDBSCAN Sensitivity Analysis
+
+Final-label sensitivity was evaluated using:
+
+- Adjusted Rand Index (ARI);
+- ARI among trajectories clustered by both configurations;
+- noise-set Jaccard similarity;
+- noise-mask agreement;
+- exact partition equivalence.
+
+The principal result was:
+
+**The major route-group structure was generally stable, while the
+largest sensitivity occurred in whether borderline trajectories
+were classified as clustered or noise.**
+
+For many neighboring parameter configurations, the ARI among
+commonly clustered trajectories was **1.0**, even when the total
+number of noise trajectories differed.
+
+This supports interpreting HDBSCAN noise as a parameter-sensitive
+set of anomaly candidates rather than automatically treating every
+noise trajectory as a confirmed operational anomaly.
+
+#### EOM Sensitivity Cliff
+
+One configuration required special investigation:
+
+```text
+min_samples = 30
+min_cluster_size = 20
+```
+
+Nearby `min_cluster_size` settings produced four clusters with
+approximately 407 noise trajectories, while this configuration
+produced only two clusters with 53 noise trajectories.
+
+The EOM selection was independently reconstructed from the saved
+condensed hierarchy and cluster stabilities.
+
+The change was traced to a very small EOM stability margin:
+
+```text
+parent stability:      6.654007
+descendant stability:  6.644866
+margin:                +0.009141
+```
+
+The result was therefore confirmed as a valid consequence of the
+current hierarchy and EOM calculation rather than a labeling bug,
+but it represents a fragile parameter boundary and was not used as
+the primary configuration.
+
+---
+
+### Step 4.8 — Primary HDBSCAN Configuration
+
+Based on parameter robustness, cluster stability, geographic
+interpretability, and avoidance of fragile EOM boundaries, the
+primary HDBSCAN configuration was selected as:
+
+```text
+min_samples = 15
+min_cluster_size = 30
+```
+
+The primary result is:
+
+- total trajectories: **1,354**
+- selected clusters: **4**
+- clustered trajectories: **1,059**
+- noise trajectories: **295**
+- noise percentage: **21.787%**
+- cluster sizes: **73, 88, 340, 558**
+- selected EOM stability: **10.378388**
+
+At `min_samples = 15`, the configurations:
+
+```text
+min_cluster_size = 20
+min_cluster_size = 30
+min_cluster_size = 50
+```
+
+produced exactly the same final partition.
+
+Neighboring `min_samples = 10` and `min_samples = 20`
+configurations also retained essentially the same major geographic
+route-group structure.
+
+Therefore, `15 / 30` is treated as the **primary representative
+configuration**, not as the only possible valid parameter choice.
+
+Sensitivity analysis remains a core part of the study.
+
+---
+
+### Step 4.9 — Clean Reproducible Manual Pipeline
+
+The experimental HDBSCAN implementation was refactored into a
+reusable manual algorithm module:
+
+```text
+src/hdbscan_manual.py
+```
+
+A separate final runner was created:
+
+```text
+src/run_manual_hdbscan.py
+```
+
+Starting only from:
+
+```text
+outputs/distances/hausdorff_100.npy
+outputs/distances/trajectory_index.csv
+```
+
+the final runner reconstructed the complete manual HDBSCAN pipeline
+from scratch.
+
+The clean implementation reproduced the previously validated
+experimental result exactly:
+
+```text
+Selected clusters:          4
+Cluster sizes:              [73, 88, 340, 558]
+Noise trajectories:         295
+Noise percentage:           21.787%
+
+Exact label match:          True
+Exact noise match:          True
+Changed labels:             0
+Changed noise statuses:     0
+```
+
+Final reproduction status:
+
+**PASS**
+
+Final manual-clustering artifacts are saved under:
+
+```text
+outputs/clusters/final/
+├── core_distances.npy
+├── mst.csv
+├── single_linkage.csv
+├── condensed_tree.csv
+├── cluster_stability.csv
+├── labels.csv
+└── summary.json
+```
+
+---
+
+### Step 4.10 — Independent Reference-Library Validation
+
+The manual implementation was independently validated against:
+
+```text
+scikit-learn HDBSCAN 1.9.1
+```
+
+The same frozen precomputed Hausdorff distance matrix was supplied
+to both implementations.
+
+A parameter-convention difference was handled explicitly.
+
+The manual implementation defines:
+
+```text
+min_samples = 15
+```
+
+as the **15th nearest other trajectory**.
+
+Scikit-learn counts the observation itself in `min_samples`.
+
+Therefore, the equivalent reference configuration was:
+
+```text
+Manual:
+    min_samples = 15
+    min_cluster_size = 30
+
+scikit-learn:
+    min_samples = 16
+    min_cluster_size = 30
+    metric = "precomputed"
+    cluster_selection_method = "eom"
+    allow_single_cluster = False
+```
+
+`min_cluster_size` required no conversion.
+
+Reference-library result:
+
+```text
+Manual:
+    clusters = 4
+    cluster sizes = [73, 88, 340, 558]
+    noise = 295
+
+scikit-learn:
+    clusters = 4
+    cluster sizes = [73, 88, 340, 558]
+    noise = 295
+```
+
+Partition agreement:
+
+- overall Adjusted Rand Index: **1.000000**
+- ARI among trajectories clustered by both: **1.000000**
+- trajectories clustered by both: **1,059**
+- noise-set Jaccard: **1.000000**
+- noise-mask agreement: **1.000000**
+- noise trajectories identified by both: **295**
+- manual-noise / reference-clustered disagreements: **0**
+- manual-clustered / reference-noise disagreements: **0**
+
+The membership contingency table was perfectly diagonal.
+
+Therefore, under equivalent parameter conventions, the final manual
+HDBSCAN implementation produced the **exact same partition** as the
+independent scikit-learn reference implementation.
+
+Reference-validation artifacts are saved under:
+
+```text
+outputs/clusters/reference_validation/
+├── reference_labels.csv
+├── manual_reference_crosstab.csv
+└── validation_summary.json
+```
+
+---
+
+### Module 4 Conclusion
+
+The complete manual HDBSCAN implementation is now:
+
+- structurally validated;
+- sensitivity-tested across 30 parameter configurations;
+- reproduced by a clean final pipeline;
+- independently validated against scikit-learn;
+- exactly consistent with the reference partition for the selected
+  primary configuration.
+
+The primary clustering configuration is therefore frozen as:
+
+```text
+100-point arc-length trajectory representation
+        ↓
+symmetric Hausdorff + Haversine distance
+        ↓
+manual HDBSCAN
+        ↓
+min_samples = 15
+min_cluster_size = 30
+        ↓
+4 recurring route clusters
+295 HDBSCAN noise / anomaly candidates
+```
+
+HDBSCAN noise is interpreted as **anomaly candidates**, not as proof
+that those trajectories are erroneous or operationally abnormal.
+
+**Next:** Module 5 — Representative routes, anomaly-candidate
+characterization, and final clustering evaluation.
