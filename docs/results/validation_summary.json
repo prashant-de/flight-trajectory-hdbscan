@@ -1,0 +1,48 @@
+{
+    "scikit_learn_version": "1.9.1",
+    "manual_parameters": {
+        "min_samples": 15,
+        "min_cluster_size": 30
+    },
+    "reference_parameters": {
+        "min_samples": 16,
+        "min_cluster_size": 30,
+        "metric": "precomputed",
+        "cluster_selection_method": "eom",
+        "allow_single_cluster": false,
+        "alpha": 1.0
+    },
+    "manual_summary": {
+        "cluster_count": 4,
+        "cluster_sizes": [
+            73,
+            88,
+            340,
+            558
+        ],
+        "noise_count": 295,
+        "noise_percent": 21.787296898079763
+    },
+    "reference_summary": {
+        "cluster_count": 4,
+        "cluster_sizes": [
+            73,
+            88,
+            340,
+            558
+        ],
+        "noise_count": 295,
+        "noise_percent": 21.787296898079763
+    },
+    "comparison": {
+        "ari_all": 1.0,
+        "ari_common_clustered": 1.0,
+        "common_clustered_count": 1059,
+        "noise_intersection": 295,
+        "noise_union": 295,
+        "noise_jaccard": 1.0,
+        "noise_mask_agreement": 1.0,
+        "manual_noise_reference_cluster": 0,
+        "manual_cluster_reference_noise": 0
+    }
+}

@@ -1,42 +1,181 @@
 # Flight Trajectory Clustering Using HDBSCAN
 
-Clustering LAX → JFK flight trajectories to identify recurring operational route patterns and unusual trajectories using ADS-B data and a manually implemented HDBSCAN pipeline.
+**Identifying recurring operational route patterns and anomaly candidates in LAX → JFK ADS-B trajectories**
 
-## Project Overview
+This project studies complete commercial flight trajectories between Los Angeles International Airport (LAX) and John F. Kennedy International Airport (JFK) using a manually implemented HDBSCAN clustering pipeline.
 
-This project investigates whether complete commercial flight trajectories between Los Angeles International Airport (LAX) and John F. Kennedy International Airport (JFK) can be grouped into recurring route families using density-based clustering.
+The clustering methodology and primary route-pattern analysis are complete and validated. The anomaly-investigation stage is still ongoing and is a central part of the research.
 
-Instead of clustering individual ADS-B observations, each complete flight is treated as one trajectory sample.
+---
 
-The final pipeline combines:
+## Project at a Glance
 
-- validated and harmonized ADS-B trajectories;
-- arc-length trajectory representation;
-- Haversine geographic distance;
-- symmetric Hausdorff trajectory distance;
-- a manual HDBSCAN implementation;
-- representative-route medoids;
-- anomaly/noise analysis;
-- robustness and sensitivity evaluation;
-- geographic visualization.
+| Item | Final study configuration |
+|---|---|
+| Route | LAX → JFK |
+| Study months | January 2026 and July 2026 |
+| Total trajectories | 1,354 |
+| Temporal sampling | 10-second harmonized trajectories |
+| Trajectory representation | 100 arc-length points |
+| Point distance | Haversine |
+| Trajectory distance | Symmetric Hausdorff |
+| Clustering | Manual HDBSCAN |
+| Final clusters | 4 |
+| Clustered trajectories | 1,059 |
+| Noise / anomaly candidates | 295 |
 
-The study includes flights from January 2026 and July 2026.
+Final cluster membership:
+
+```text
+Cluster 0:  73 trajectories
+Cluster 1: 558 trajectories
+Cluster 2:  88 trajectories
+Cluster 3: 340 trajectories
+Noise:      295 trajectories
+```
+
+---
+
+## Final Route Clustering
+
+The primary clustering result identifies four recurring LAX → JFK route families together with trajectories classified as HDBSCAN noise.
+
+![Final HDBSCAN route clusters](docs/figures/final_route_clusters_map.png)
+
+HDBSCAN noise is treated as a set of **anomaly candidates**, not as automatic evidence of abnormal or unsafe flight operations.
+
+---
+
+## Methodology
+
+The study treats **one complete flight trajectory as one clustering sample**.
+
+```mermaid
+flowchart TD
+    A[ADS-B LAX → JFK Trajectories] --> B[Validation and Cleaning]
+
+    B --> C[10-Second Harmonized Trajectories]
+
+    C --> D[100-Point Arc-Length Representation]
+
+    D --> E[Haversine Point Distance]
+
+    E --> F[Symmetric Hausdorff<br/>Trajectory Distance Matrix]
+
+    F --> G[Manual HDBSCAN]
+
+    G --> H[Recurring Route Families]
+    G --> I[Noise / Anomaly Candidates]
+
+    H --> J[Representative Route Medoids]
+
+    I --> K[Persistence and<br/>Geometric Extremeness]
+
+    G --> L[Robustness Analysis]
+
+    L --> M[HDBSCAN Parameter Sensitivity]
+    L --> N[100 vs 200 Representation Points]
+    L --> O[Hausdorff vs Fréchet]
+    L --> P[scikit-learn Reference Validation]
+
+    K --> Q[Event-Level Anomaly Investigation]
+
+    Q --> R[High-Resolution ADS-B Validation]
+    Q --> S[Weather / Operational Evidence]
+```
+
+The final clustering is therefore only one stage of the research. The noise trajectories are subsequently examined for persistence, geometric extremeness, data-quality issues, date-level concentration, and possible external operational or meteorological context.
+
+---
+
+## Representative Route Families
+
+For each cluster, one real observed flight is selected as its **medoid**: the trajectory with the minimum mean Hausdorff distance to the other members of that cluster.
+
+![Representative HDBSCAN route medoids](docs/figures/final_representative_routes_map.png)
+
+Using medoids rather than averaged trajectories ensures that every representative route corresponds to an actual observed flight.
+
+---
+
+## Key Findings So Far
+
+The validated primary clustering produced four recurring route families and 295 HDBSCAN noise trajectories.
+
+The main route-family structure is highly robust:
+
+```text
+Manual HDBSCAN vs scikit-learn
+    Adjusted Rand Index: 1.000000
+    Noise-set Jaccard:   1.000000
+
+100-point vs 200-point representation
+    Adjusted Rand Index: 0.989996
+    Common-cluster ARI:  1.000000
+
+Hausdorff vs discrete Fréchet
+    Adjusted Rand Index: 0.993846
+    Common-cluster ARI:  1.000000
+```
+
+This indicates that the four major route families are not artifacts of one particular representation resolution, trajectory metric, or HDBSCAN implementation.
+
+The overall silhouette score among clustered trajectories is:
+
+```text
+0.490665
+```
+
+which supports meaningful route separation while also reflecting overlap and boundary behavior expected in real operational trajectories.
+
+---
+
+## Ongoing Anomaly Investigation
+
+The anomaly-analysis stage is still active and forms an important part of the research.
+
+The final HDBSCAN model identifies:
+
+```text
+295 noise / anomaly candidates
+```
+
+Of these, 239 remain noise across all three neighboring tested `min_samples` configurations, indicating that many are not merely unstable boundary assignments.
+
+A particularly interesting signal appears on **July 28, 2026**.
+
+Among the 15 primary noise trajectories exceeding the 95th percentile of nearest-medoid distance:
+
+```text
+8 occurred on July 28
+```
+
+while July 28 accounts for only:
+
+```text
+20 of the 1,354 total study trajectories
+```
+
+The current interpretation is deliberately limited:
+
+> The unsupervised clustering independently identified an unusually concentrated set of persistent and geometrically extreme trajectories on July 28, 2026. The cause has not yet been established.
+
+The next stage is to validate these trajectories using higher-resolution ADS-B data and independent weather or operational evidence for July 27–29.
+
+No causal weather or operational claim is made at the current stage.
 
 ---
 
 ## Research Objective
 
-The main objectives are to:
+The broader objectives of the study are to:
 
 1. identify recurring LAX → JFK route families;
-2. select a representative observed trajectory for each route family;
-3. identify trajectories that do not belong to the major recurring patterns;
-4. evaluate whether the clustering is robust to reasonable modeling choices;
-5. investigate unusual concentrations of geometrically extreme trajectories.
+2. determine representative observed trajectories for those families;
+3. identify trajectories that depart from the major recurring patterns;
+4. test whether the clustering remains stable under reasonable modeling choices;
+5. investigate whether persistent and geometrically extreme trajectories correspond to meaningful operational or environmental events.
 
-HDBSCAN noise is interpreted as an **anomaly candidate**, not automatically as a confirmed operational anomaly.
-
----
 
 ## Dataset
 
@@ -57,6 +196,14 @@ The two months have different source provenance:
 - July trajectories were supplied as approximately 10-second trajectories and harmonized through the project pipeline.
 
 Because of this provenance difference and because only two months are studied, month-level differences are treated as descriptive rather than evidence of a general seasonal effect.
+
+### Month Composition
+
+The final HDBSCAN groups contain different proportions of January and July trajectories.
+
+![January and July composition of final HDBSCAN groups](docs/figures/final_month_composition.png)
+
+This comparison is descriptive only. Because the study includes two selected months with different source-data provenance, the figure is not interpreted as evidence of a general seasonal effect.
 
 The raw and processed flight datasets are not stored in the public Git repository.
 
@@ -227,6 +374,13 @@ Cluster 3: 0.417695
 
 Only 29 of the 1,059 clustered trajectories have negative silhouette scores.
 
+
+### Representative-Route Separation
+
+The pairwise Hausdorff distances between cluster medoids provide another view of how distinct the four recurring route families are.
+
+![Pairwise distances between representative route medoids](docs/figures/final_medoid_distances.png)
+
 The closest representative-route pair is:
 
 ```text
@@ -241,6 +395,11 @@ Cluster 0 ↔ Cluster 1
 Hausdorff distance: 634.983 km
 ```
 
+### Silhouette Distribution
+
+The distribution below shows how strongly individual trajectories fit their assigned route family. Most clustered trajectories have positive silhouette values, while a small number near cluster boundaries have negative values.
+
+![Silhouette distribution by cluster](docs/figures/final_silhouette_distribution.png)
 ---
 
 ## Robustness and Sensitivity Analysis
@@ -406,6 +565,40 @@ Cluster 2 = green
 Cluster 3 = red
 Noise     = gray
 ```
+
+---
+
+## Presentation and Result Artifacts
+
+Selected final figures and compact numerical summaries are included in
+the repository so the main results can be inspected without rerunning
+the full analysis.
+
+### Figures
+
+```text
+docs/figures/
+├── final_route_clusters_map.png
+├── final_representative_routes_map.png
+├── final_month_composition.png
+├── final_silhouette_distribution.png
+└── final_medoid_distances.png
+```
+
+### Result Summaries
+
+```text
+docs/results/
+├── cluster_summary.csv
+├── representative_routes.csv
+├── evaluation_summary.json
+└── validation_summary.json
+```
+
+
+Large raw ADS-B datasets, processed trajectory collections, and
+precomputed trajectory-distance matrices are intentionally excluded
+from the public repository.
 
 ---
 

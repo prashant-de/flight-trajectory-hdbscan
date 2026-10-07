@@ -1,0 +1,31 @@
+{
+    "primary_configuration": {
+        "representation_points": 100,
+        "trajectory_metric": "symmetric_hausdorff_haversine",
+        "min_samples": 15,
+        "min_cluster_size": 30
+    },
+    "overall_partition": {
+        "trajectory_count": 1354,
+        "cluster_count": 4,
+        "clustered_count": 1059,
+        "clustered_percent": 78.21270310192023,
+        "noise_count": 295,
+        "noise_percent": 21.787296898079763
+    },
+    "overall_silhouette_clustered_only": 0.49066536263705407,
+    "noise_nearest_medoid_distance_km": {
+        "minimum": 92.48554823285569,
+        "mean": 230.16173092675803,
+        "median": 201.41830870955326,
+        "p95": 443.45250032301936,
+        "maximum": 799.9389410747266,
+        "noise_count": 295
+    },
+    "interpretation_notes": [
+        "Silhouette is computed only among the four selected route clusters; HDBSCAN noise is excluded.",
+        "Silhouette is complementary evidence and is not used to select or tune the final HDBSCAN solution.",
+        "HDBSCAN noise trajectories are anomaly candidates, not automatically confirmed operational anomalies.",
+        "Month composition is descriptive and does not establish a seasonal causal effect."
+    ]
+}
