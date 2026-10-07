@@ -1877,3 +1877,211 @@ weather/operational validation.
 work in Git, then continue with final project/report integration or the
 July 27–29 event-validation case study when the new data becomes
 available.
+
+---
+
+## Module 6 — Final Project Integration
+
+### Step 6.1 — Repository Documentation
+
+A complete project-level `README.md` was created.
+
+The README now documents:
+
+- the research objective;
+- dataset scope and provenance;
+- preprocessing and trajectory representation;
+- Hausdorff trajectory distance;
+- the manual HDBSCAN methodology;
+- the frozen primary configuration;
+- final clustering results;
+- representative-route medoids;
+- quantitative evaluation;
+- anomaly-candidate analysis;
+- representation and metric sensitivity;
+- final visualizations;
+- project structure;
+- environment setup;
+- reproducibility considerations;
+- project limitations.
+
+The README explicitly distinguishes HDBSCAN noise from confirmed
+operational anomalies and avoids interpreting the January/July
+comparison as evidence of a general seasonal effect.
+
+---
+
+### Step 6.2 — Project Command-Line Interface
+
+The previously empty:
+
+```text
+main.py
+```
+
+was converted into a lightweight project entry point.
+
+Available commands:
+
+```text
+python main.py
+python main.py --help
+python main.py cluster
+python main.py validate
+python main.py evaluate
+python main.py visualize
+python main.py final
+```
+
+The entry point intentionally does not automatically rebuild expensive
+research artifacts such as:
+
+```text
+raw-data preprocessing
+full primary distance-matrix construction
+200-point Hausdorff sensitivity matrix
+full discrete Fréchet distance matrix
+```
+
+These remain explicit research modules.
+
+This prevents accidental execution of long-running sensitivity
+experiments while keeping the finalized analysis reproducible.
+
+---
+
+### CLI Verification
+
+The following commands were tested independently.
+
+#### Project summary
+
+```text
+python main.py
+```
+
+PASS.
+
+The displayed final cluster membership is:
+
+```text
+Cluster 0: 73
+Cluster 1: 558
+Cluster 2: 88
+Cluster 3: 340
+
+Clustered trajectories: 1,059
+Noise trajectories:       295
+Total trajectories:     1,354
+```
+
+#### Command help
+
+```text
+python main.py --help
+```
+
+PASS.
+
+#### Manual HDBSCAN reproduction
+
+```text
+python main.py cluster
+```
+
+PASS.
+
+Result:
+
+```text
+Selected clusters: 4
+Noise trajectories: 295
+Noise percentage: 21.787%
+Selected EOM stability: 10.378388
+
+Exact label match: True
+Exact noise match: True
+Changed labels: 0
+Changed noise statuses: 0
+```
+
+#### scikit-learn reference validation
+
+```text
+python main.py validate
+```
+
+PASS.
+
+Result:
+
+```text
+Adjusted Rand Index: 1.000000
+Common-cluster ARI:  1.000000
+Noise-set Jaccard:   1.000000
+Noise agreement:     1.000000
+```
+
+The manual implementation therefore reproduces the equivalent
+scikit-learn partition exactly.
+
+#### Final evaluation
+
+```text
+python main.py evaluate
+```
+
+PASS.
+
+Key reproduced values:
+
+```text
+Clusters: 4
+Clustered trajectories: 1,059
+Noise trajectories: 295
+Overall silhouette: 0.490665
+```
+
+#### Final visualization
+
+```text
+python main.py visualize
+```
+
+PASS.
+
+The command successfully regenerates the frozen five-figure set:
+
+```text
+final_route_clusters_map
+final_representative_routes_map
+final_month_composition
+final_silhouette_distribution
+final_medoid_distances
+```
+
+---
+
+### Module 6 Current Status
+
+Completed:
+
+```text
+Project-level README                         PASS
+Project methodology documentation           PASS
+Final configuration documentation           PASS
+Reproducibility documentation               PASS
+Command-line project interface              PASS
+Manual clustering command                   PASS
+Reference-validation command                PASS
+Final-evaluation command                    PASS
+Final-visualization command                 PASS
+```
+
+The core project can now be understood and reproduced through the
+repository without requiring a reader to inspect individual research
+scripts first.
+
+**Next:** checkpoint the Module 6 repository integration in Git, then
+move to final report preparation or the optional July 27–29
+event-validation extension.
