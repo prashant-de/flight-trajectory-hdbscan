@@ -1570,3 +1570,310 @@ case study and does not modify the frozen primary clustering model.
 **Next:** complete final cluster evaluation and reporting, while the
 independent July 27–29 high-resolution event-validation data is
 being obtained.
+
+---
+
+### Step 5.9 — Final Quantitative Cluster Evaluation
+
+The frozen primary clustering was evaluated quantitatively using the
+final 100-point Hausdorff distance matrix and the final HDBSCAN labels.
+
+Primary partition:
+
+```text
+Trajectories: 1,354
+Clusters: 4
+Clustered trajectories: 1,059 (78.213%)
+HDBSCAN noise / anomaly candidates: 295 (21.787%)
+```
+
+#### Within-cluster geometry
+
+```text
+Cluster 0
+    size: 73
+    within-cluster mean distance:   196.696 km
+    within-cluster median distance: 180.349 km
+    within-cluster p95 distance:    357.418 km
+
+Cluster 1
+    size: 558
+    within-cluster mean distance:   122.793 km
+    within-cluster median distance: 113.129 km
+    within-cluster p95 distance:    234.296 km
+
+Cluster 2
+    size: 88
+    within-cluster mean distance:   131.468 km
+    within-cluster median distance: 123.089 km
+    within-cluster p95 distance:    262.249 km
+
+Cluster 3
+    size: 340
+    within-cluster mean distance:   137.415 km
+    within-cluster median distance: 123.110 km
+    within-cluster p95 distance:    267.101 km
+```
+
+Cluster 0 is internally broader than the other three clusters, but it
+is also strongly separated from the other representative routes.
+
+#### Representative-route separation
+
+Pairwise Hausdorff distances between cluster medoids:
+
+```text
+                C0       C1       C2       C3
+C0             0.0    634.983  505.640  451.906
+C1           634.983    0.0    272.037  420.595
+C2           505.640  272.037    0.0    213.922
+C3           451.906  420.595  213.922    0.0
+```
+
+The closest representative-route pair is:
+
+```text
+Cluster 2 ↔ Cluster 3
+distance = 213.922 km
+```
+
+The most separated representative-route pair is:
+
+```text
+Cluster 0 ↔ Cluster 1
+distance = 634.983 km
+```
+
+#### Silhouette evaluation
+
+Silhouette analysis was computed only for the 1,059 clustered
+trajectories.
+
+HDBSCAN noise was deliberately excluded because the 295 noise
+trajectories do not form a fifth cluster.
+
+Overall silhouette score:
+
+```text
+0.490665
+```
+
+Per-cluster results:
+
+```text
+Cluster 0
+    mean silhouette:   0.561794
+    median silhouette: 0.594533
+    negative members:  0 / 73
+
+Cluster 1
+    mean silhouette:   0.541886
+    median silhouette: 0.617965
+    negative members:  12 / 558 (2.15%)
+
+Cluster 2
+    mean silhouette:   0.388803
+    median silhouette: 0.396062
+    negative members:  0 / 88
+
+Cluster 3
+    mean silhouette:   0.417695
+    median silhouette: 0.480134
+    negative members:  17 / 340 (5.00%)
+```
+
+Only:
+
+```text
+29 / 1,059 ≈ 2.7%
+```
+
+of clustered trajectories have negative silhouette values.
+
+These boundary cases occur only in Clusters 1 and 3.
+
+The silhouette analysis supports meaningful separation of the four
+route families while also showing that real operational routes are not
+perfectly isolated geometric groups.
+
+Silhouette was used as complementary evaluation evidence only; it was
+not used to tune or select the final HDBSCAN parameters.
+
+#### Noise geometry
+
+Distance from each HDBSCAN noise trajectory to its nearest cluster
+medoid:
+
+```text
+minimum:  92.486 km
+mean:    230.162 km
+median:  201.418 km
+p95:     443.453 km
+maximum: 799.939 km
+```
+
+These results confirm that many HDBSCAN noise trajectories are
+substantially separated from the representative route families.
+
+However, noise remains interpreted as an anomaly candidate rather than
+automatic evidence of an operational anomaly.
+
+---
+
+### Step 5.10–5.11 — Final Visualization System
+
+Final visualization logic was consolidated into:
+
+```text
+src/visualization.py
+```
+
+instead of maintaining separate plotting scripts for each figure.
+
+Cartopy 0.26.0 was added to the project environment to provide
+reproducible geographic maps using Natural Earth geographic features.
+
+The final visualization set contains five distinct report figures:
+
+```text
+1. final_route_clusters_map
+2. final_representative_routes_map
+3. final_month_composition
+4. final_silhouette_distribution
+5. final_medoid_distances
+```
+
+Both PNG and PDF versions are generated automatically.
+
+#### Geographic final HDBSCAN clusters
+
+This figure displays:
+
+- all 1,354 flight trajectories;
+- the four final HDBSCAN clusters;
+- 295 HDBSCAN noise trajectories;
+- LAX origin and JFK destination;
+- U.S. geographic context.
+
+Representative medoid routes are deliberately **not overlaid** on this
+figure.
+
+The purpose of this figure is to show the actual complete HDBSCAN
+partition without mixing it with representative-route interpretation.
+
+#### Geographic representative routes
+
+A separate geographic figure displays only the four cluster medoids.
+
+Each line therefore represents one real observed flight selected as
+the representative trajectory of its cluster.
+
+This provides a clean interpretation of the recurring route families
+without displaying all individual flights.
+
+#### Fixed cluster visual identity
+
+The final cluster colors are kept consistent across all plots:
+
+```text
+Cluster 0 = blue
+Cluster 1 = orange
+Cluster 2 = green
+Cluster 3 = red
+Noise     = gray
+```
+
+LAX and JFK are displayed using distinct origin/destination marker
+colors.
+
+#### Geographic style
+
+The final maps use:
+
+- a light geographic background;
+- emphasized coastlines and national borders;
+- lighter U.S. state boundaries;
+- thin trajectory lines;
+- consistent geographic extent;
+- latitude/longitude grid labels.
+
+The geographic visual design was kept technical and publication-style
+rather than using online map tiles or screenshots.
+
+#### Remaining analytical figures
+
+The final visualization module also generates:
+
+```text
+Month composition
+    January/July counts by cluster and noise group
+    descriptive only; not treated as seasonal causation
+
+Silhouette distribution
+    cluster-level geometric separation and boundary behavior
+
+Medoid-distance heatmap
+    separation among the four representative route families
+```
+
+The final visualization design has now been reviewed and frozen.
+
+---
+
+### Module 5 Current Status
+
+Completed:
+
+```text
+Representative route medoids                     PASS
+Anomaly-candidate characterization               PASS
+Persistent-noise analysis                        PASS
+Top-anomaly visualization                        PASS
+Anomaly data-quality diagnostics                 PASS
+Daily anomaly concentration                      PASS
+100 vs 200 representation sensitivity            PASS
+Hausdorff vs discrete Fréchet sensitivity        PASS
+Final quantitative cluster evaluation            PASS
+Final geographic visualization system            PASS
+```
+
+The central clustering result is now supported by:
+
+- manual HDBSCAN implementation;
+- exact scikit-learn reference validation;
+- HDBSCAN parameter sensitivity;
+- representation-resolution sensitivity;
+- trajectory-metric sensitivity;
+- silhouette evaluation;
+- medoid separation analysis;
+- geographic visualization;
+- anomaly persistence analysis.
+
+The primary model remains frozen as:
+
+```text
+Validated 10-second trajectory data
+        ↓
+100-point arc-length representation
+        ↓
+Haversine point distance
+        ↓
+symmetric Hausdorff trajectory distance
+        ↓
+manual HDBSCAN
+        ↓
+min_samples = 15
+min_cluster_size = 30
+        ↓
+4 recurring route families
+295 noise / anomaly candidates
+```
+
+The July 28 concentration remains a separate post-clustering event
+case study pending high-resolution July 27–29 ADS-B and independent
+weather/operational validation.
+
+**Next:** checkpoint the completed Module 5 evaluation and visualization
+work in Git, then continue with final project/report integration or the
+July 27–29 event-validation case study when the new data becomes
+available.
